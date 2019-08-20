@@ -1,0 +1,7 @@
+[package]
+name = "dotnet_bindgen_core"
+version = "0.1.0"
+authors = ["Joe Roberts <joe@jwjr.co.uk>"]
+edition = "2018"
+
+[dependencies]
