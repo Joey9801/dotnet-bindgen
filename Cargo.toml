@@ -1,0 +1,14 @@
+[package]
+name = "csharp_bindgen"
+version = "0.1.0"
+authors = ["Joe Roberts <joe@jwjr.co.uk>"]
+edition = "2018"
+
+[dependencies]
+
+[workspace]
+members = [
+    "crates/dotnet_bindgen_core",
+    "crates/dotnet_bindgen_cli/",
+    "crates/test_lib//",
+]

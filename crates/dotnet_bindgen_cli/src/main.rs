@@ -136,17 +136,6 @@ impl BindgenData {
     }
 }
 
-fn process_elf(elf: &Elf, buffer: &[u8]) {
-    let parsed = BindgenData::load_elf(elf, buffer).unwrap();
-    let func = parsed.get_function();
-    dbg!(func);
-    dbg!(func.name());
-
-    for arg in func.args {
-        dbg!(arg.name());
-    }
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 

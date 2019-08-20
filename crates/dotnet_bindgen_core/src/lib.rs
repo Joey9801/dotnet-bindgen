@@ -8,7 +8,6 @@ pub enum FfiType {
     Void,
 }
 
-
 #[repr(C)]
 #[derive(Debug)]
 pub struct MethodArgument<'a> {
