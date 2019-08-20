@@ -1,0 +1,10 @@
+[package]
+name = "dotnet_bindgen_cli"
+version = "0.1.0"
+authors = ["Joe Roberts <joe@jwjr.co.uk>"]
+edition = "2018"
+
+[dependencies]
+dotnet_bindgen_core = { path = "../dotnet_bindgen_core" }
+goblin = "0.0.24"
+syn = "1"
