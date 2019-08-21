@@ -9,6 +9,7 @@ edition = "2018"
 [workspace]
 members = [
     "crates/dotnet_bindgen_core",
-    "crates/dotnet_bindgen_cli/",
-    "crates/test_lib//",
+    "crates/dotnet_bindgen_cli",
+    "crates/test_lib",
+    "crates/macro",
 ]

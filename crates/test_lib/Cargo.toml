@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 dotnet_bindgen_core = { path = "../dotnet_bindgen_core" }
+dotnet-bindgen-macro = { path = "../macro" }

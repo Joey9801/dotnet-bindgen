@@ -1,10 +1,14 @@
 [package]
-name = "dotnet_bindgen_core"
+name = "dotnet-bindgen-macro"
 version = "0.1.0"
 authors = ["Joe Roberts <joe@jwjr.co.uk>"]
 edition = "2018"
 
+[lib]
+proc-macro = true
+
 [dependencies]
+dotnet_bindgen_core = { path = "../dotnet_bindgen_core" }
 quote = "1.0"
 syn = { version = "1.0", features = ["full", "fold"] }
 proc-macro2 = "1.0"

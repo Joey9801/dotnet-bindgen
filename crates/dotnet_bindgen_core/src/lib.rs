@@ -1,3 +1,6 @@
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
+
 #[repr(C)]
 #[derive(Debug)]
 pub enum FfiType {
@@ -7,6 +10,21 @@ pub enum FfiType {
     // Array { element_type: &'a FfiType, length: usize },
     Void,
 }
+
+impl ToTokens for FfiType {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            FfiType::Int { width, signed } => {
+                let new = quote! {
+                    FfiType::Int { width: #width, signed: #signed }
+                };
+                tokens.extend(new);
+            },
+            _ => unreachable!(),
+        };
+    }
+}
+
 
 #[repr(C)]
 #[derive(Debug)]
