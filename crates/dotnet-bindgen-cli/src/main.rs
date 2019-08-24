@@ -128,10 +128,10 @@ impl BindgenData {
     }
 
     // TODO: The lifetime parameter isn't really static The data inside the returned
-    // BindGenFunction only lives as long as self. Probably need to add some phantom member to
-    // BindGenData to hold a finite lifetime parameter.
-    pub fn get_function(&self) -> &BindGenFunction<'static> {
-        let first_ptr = self.bindgen_section.data.as_ptr() as *mut BindGenFunction<'static>;
+    // BindgenFunction only lives as long as self. Probably need to add some phantom member to
+    // BindgenData to hold a finite lifetime parameter.
+    pub fn get_function(&self) -> &BindgenFunction<'static> {
+        let first_ptr = self.bindgen_section.data.as_ptr() as *mut BindgenFunction<'static>;
         unsafe { &*first_ptr }
     }
 }
@@ -162,12 +162,12 @@ fn main() {
 
     println!("Successfully loaded {}", path.display());
     let func = data.get_function();
-    println!("    Function name: {}", func.name());
+    println!("    Function name: {}", func.name);
     println!("    Return type: {:?}", func.return_type);
     println!("    Args:");
     for (i, arg) in func.args.iter().enumerate() {
         println!("      Arg {}:", i);
-        println!("         Name: {}", arg.name());
+        println!("         Name: {}", arg.name);
         println!("         Type: {:?}", arg.ffi_type);
     }
 }

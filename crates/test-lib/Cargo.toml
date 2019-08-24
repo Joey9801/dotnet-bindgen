@@ -1,5 +1,5 @@
 [package]
-name = "test_lib"
+name = "test-lib"
 version = "0.1.0"
 authors = ["Joe Roberts <joe@jwjr.co.uk>"]
 edition = "2018"
@@ -8,5 +8,4 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-dotnet_bindgen_core = { path = "../dotnet_bindgen_core" }
-dotnet-bindgen-macro = { path = "../macro" }
+dotnet-bindgen = { path = "../../" }

@@ -1,15 +1,18 @@
 [package]
-name = "csharp_bindgen"
+name = "dotnet-bindgen"
 version = "0.1.0"
 authors = ["Joe Roberts <joe@jwjr.co.uk>"]
 edition = "2018"
 
 [dependencies]
+syn = { version = "1.0", features = ["full", "fold"] }
+dotnet-bindgen-macro = { path = "./crates/macro" }
 
 [workspace]
 members = [
-    "crates/dotnet_bindgen_core",
-    "crates/dotnet_bindgen_cli",
-    "crates/test_lib",
+    "crates/dotnet-bindgen-core",
+    "crates/dotnet-bindgen-cli",
+    "crates/test-lib",
     "crates/macro",
+    "crates/macro-support",
 ]

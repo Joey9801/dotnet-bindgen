@@ -8,7 +8,8 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
-dotnet_bindgen_core = { path = "../dotnet_bindgen_core" }
+dotnet-bindgen-macro-support = { path = "../macro-support" }
+dotnet-bindgen-core = { path = "../dotnet-bindgen-core" }
 quote = "1.0"
 syn = { version = "1.0", features = ["full", "fold"] }
 proc-macro2 = "1.0"
