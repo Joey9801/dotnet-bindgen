@@ -2,7 +2,7 @@
 //!
 //! This component is intended to be fairly minimal, to reduce the impact of having it included in client code.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::ops::Deref;
 use std::str::FromStr;
 
@@ -51,18 +51,25 @@ impl<'a, T> Deref for MaybeOwnedArr<'a, T> {
 
 /// Thin wrapper around MaybeOwnedArr for strings
 #[repr(C)]
-#[derive(Debug)]
 pub struct MaybeOwnedString<'a> {
     bytes: MaybeOwnedArr<'a, u8>,
 }
 
 impl<'a> Display for MaybeOwnedString<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data")
-        )
+        let parsed_str = std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+        write!(f, "{}", parsed_str)
+    }
+}
+
+impl<'a> Debug for MaybeOwnedString<'a>  {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let parsed_str = std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+
+        match self.bytes {
+            MaybeOwnedArr::Owned(_) => write!(f, "MaybeOwnedString::Owned({:?})", parsed_str),
+            MaybeOwnedArr::Ref(_) => write!(f, "MaybeOwnedString::Ref({:?})", parsed_str),
+        }
     }
 }
 
