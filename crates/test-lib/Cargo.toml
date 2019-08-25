@@ -8,4 +8,5 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
+dotnet-bindgen-core = { path = "../dotnet-bindgen-core" }
 dotnet-bindgen = { path = "../../" }

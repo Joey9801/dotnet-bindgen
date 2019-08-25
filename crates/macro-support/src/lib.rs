@@ -6,15 +6,20 @@ use quote::ToTokens;
 mod error;
 pub use crate::error::Diagnostic;
 
+mod ast;
+
 use dotnet_bindgen_core::*;
 
+#[derive(Debug)]
 enum Export {
-    Func(BindgenFunction<'static>),
+    Func(ast::AstFunction),
 }
 
 impl ToTokens for Export {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-
+        match self {
+            Export::Func(f) => f.to_tokens(tokens),
+        }
     }
 }
 
@@ -91,7 +96,7 @@ impl MacroParse for syn::ItemFn {
             return_type,
         };
 
-        program.exports.push(Export::Func(func));
+        program.exports.push(Export::Func(func.into()));
 
         Ok(())
     }

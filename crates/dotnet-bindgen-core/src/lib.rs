@@ -31,7 +31,7 @@ use std::str::FromStr;
 /// #[no_mangle]
 /// pub static ARR: MaybeOwnedArr<'static, i32> = MaybeOwnedArr::Ref(&DATA);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub enum MaybeOwnedArr<'a, T> {
     Owned(Vec<T>),
@@ -50,9 +50,10 @@ impl<'a, T> Deref for MaybeOwnedArr<'a, T> {
 }
 
 /// Thin wrapper around MaybeOwnedArr for strings
+#[derive(Clone)]
 #[repr(C)]
 pub struct MaybeOwnedString<'a> {
-    bytes: MaybeOwnedArr<'a, u8>,
+    pub bytes: MaybeOwnedArr<'a, u8>,
 }
 
 impl<'a> Display for MaybeOwnedString<'a> {
@@ -82,13 +83,21 @@ impl<'a> FromStr for MaybeOwnedString<'a> {
     }
 }
 
+impl<'a> Deref for MaybeOwnedString<'a> {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data")
+    }
+}
+
 #[derive(Debug)]
 pub enum BindgenCoreErr {
     UnknownType,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FfiType {
     Int { width: u8, signed: bool },
     Void,
@@ -108,14 +117,14 @@ impl FromStr for FfiType {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodArgument<'a> {
     pub name: MaybeOwnedString<'a>,
     pub ffi_type: FfiType,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BindgenFunction<'a> {
     pub name: MaybeOwnedString<'a>,
     pub args: MaybeOwnedArr<'a, MethodArgument<'a>>,
