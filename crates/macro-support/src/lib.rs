@@ -8,16 +8,26 @@ pub use crate::error::Diagnostic;
 
 use dotnet_bindgen_core::*;
 
-enum Export<'a> {
-    Func(BindgenFunction<'a>),
+enum Export {
+    Func(BindgenFunction<'static>),
 }
 
-struct Program<'a> {
-    exports: Vec<Export<'a>>,
+impl ToTokens for Export {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+
+    }
 }
 
-impl<'a> ToTokens for Program<'a> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {}
+struct Program {
+    exports: Vec<Export>,
+}
+
+impl ToTokens for Program {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        for export in &self.exports {
+            export.to_tokens(tokens);
+        }
+    }
 }
 
 trait MacroParse {
@@ -53,7 +63,6 @@ impl MacroParse for syn::Item {
 
 impl MacroParse for syn::ItemFn {
     fn macro_parse(&self, program: &mut Program) -> Result<(), Diagnostic> {
-        let func_name = self.sig.ident.to_string();
         let mut args = Vec::new();
 
         for arg in self.sig.inputs.iter() {
@@ -69,27 +78,40 @@ impl MacroParse for syn::ItemFn {
             });
         }
 
-        dbg!(args);
+        let args = MaybeOwnedArr::Owned(args);
+        let return_type = match &self.sig.output {
+            syn::ReturnType::Default => FfiType::Void,
+            syn::ReturnType::Type(_arrow, ty) => parse_type(&ty)?,
+        };
+        let name = MaybeOwnedString::from_str(&self.sig.ident.to_string()).unwrap();
+
+        let func = BindgenFunction {
+            name,
+            args,
+            return_type,
+        };
+
+        program.exports.push(Export::Func(func));
 
         Ok(())
     }
 }
 
-fn parse_pat(pat: &syn::Pat) -> Result<MaybeOwnedString, Diagnostic> {
+fn parse_pat(pat: &syn::Pat) -> Result<MaybeOwnedString<'static>, Diagnostic> {
     match pat {
         syn::Pat::Ident(pat_ident) => parse_pat_ident(&pat_ident),
         _ => bail_span!(pat, "Can't generate binding metadata for this pattern"),
     }
 }
 
-fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString, Diagnostic> {
+fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString<'static>, Diagnostic> {
     match &pat_ident.by_ref {
         Some(r) => bail_span!(r, "Can't generate binding metadata for ref types"),
         None => (),
     };
 
     match &pat_ident.subpat {
-        Some((at, pat)) => bail_span!(pat, "Can't generate binding metadata for subpatterns"),
+        Some((_at, pat)) => bail_span!(pat, "Can't generate binding metadata for subpatterns"),
         None => (),
     };
 
