@@ -75,11 +75,29 @@ impl<'a> FromStr for MaybeOwnedString<'a> {
     }
 }
 
+#[derive(Debug)]
+pub enum BindgenCoreErr {
+    UnknownType,
+}
+
 #[repr(C)]
 #[derive(Debug)]
 pub enum FfiType {
     Int { width: u8, signed: bool },
     Void,
+}
+
+impl FromStr for FfiType {
+    type Err = BindgenCoreErr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: A real parser
+        if s == "i16" {
+            Ok(FfiType::Int { width: 16, signed: true })
+        } else {
+            Err(BindgenCoreErr::UnknownType)
+        }
+    }
 }
 
 #[repr(C)]

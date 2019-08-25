@@ -119,12 +119,40 @@ fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString<'static
 }
 
 fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
-    let ffi_type = match ty {
-        _ => {
-            return Err(err_span!(
+    let err = Err(err_span!(
                 ty,
                 "Can't generate binding metadata for this type"
-            ))
+            ));
+
+    let ffi_type = match ty {
+        syn::Type::Path(type_path) => {
+            if type_path.qself.is_some() {
+                return err;
+            }
+
+            let path = &type_path.path;
+            if path.leading_colon.is_some() {
+                return err;
+            }
+            
+            let seg_count = path.segments.len();
+            if seg_count > 1 || seg_count == 0 {
+                return err;
+            }
+
+            let only_segment = path.segments.first().unwrap();
+            if !only_segment.arguments.is_empty() {
+                return err;
+            }
+
+            let ident = only_segment.ident.to_string();
+            match ident.parse() {
+                Ok(ty) => ty,
+                Err(_) => return err,
+            }
+        }
+        _ => {
+            return err;
         }
     };
 
