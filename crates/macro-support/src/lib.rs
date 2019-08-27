@@ -125,9 +125,9 @@ fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString<'static
 
 fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
     let err = Err(err_span!(
-                ty,
-                "Can't generate binding metadata for this type"
-            ));
+        ty,
+        "Can't generate binding metadata for this type"
+    ));
 
     let ffi_type = match ty {
         syn::Type::Path(type_path) => {
@@ -139,7 +139,7 @@ fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
             if path.leading_colon.is_some() {
                 return err;
             }
-            
+
             let seg_count = path.segments.len();
             if seg_count > 1 || seg_count == 0 {
                 return err;

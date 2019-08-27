@@ -58,14 +58,16 @@ pub struct MaybeOwnedString<'a> {
 
 impl<'a> Display for MaybeOwnedString<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let parsed_str = std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+        let parsed_str =
+            std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
         write!(f, "{}", parsed_str)
     }
 }
 
-impl<'a> Debug for MaybeOwnedString<'a>  {
+impl<'a> Debug for MaybeOwnedString<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let parsed_str = std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+        let parsed_str =
+            std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
 
         match self.bytes {
             MaybeOwnedArr::Owned(_) => write!(f, "MaybeOwnedString::Owned({:?})", parsed_str),
@@ -109,7 +111,10 @@ impl FromStr for FfiType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // TODO: A real parser
         if s == "i16" {
-            Ok(FfiType::Int { width: 16, signed: true })
+            Ok(FfiType::Int {
+                width: 16,
+                signed: true,
+            })
         } else {
             Err(BindgenCoreErr::UnknownType)
         }

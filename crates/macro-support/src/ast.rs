@@ -1,5 +1,5 @@
-use proc_macro2::{TokenStream, Literal, Ident, Punct, Spacing, Group, Delimiter};
-use quote::{quote, format_ident, ToTokens, TokenStreamExt};
+use proc_macro2::{Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream};
+use quote::{format_ident, quote, ToTokens, TokenStreamExt};
 
 use dotnet_bindgen_core::*;
 
@@ -103,7 +103,7 @@ impl ToTokens for AstType {
             },
             Void => quote! {
                 ::dotnet_bindgen_core::FfiType::Void
-            }
+            },
         };
 
         tokens.extend(new_tokens);
@@ -128,7 +128,9 @@ impl AstMethodArgument {
 impl ToTokens for AstMethodArgument {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name_ident = self.name().ident;
-        let ffi_type = AstType { source: self.source.ffi_type.clone() };
+        let ffi_type = AstType {
+            source: self.source.ffi_type.clone(),
+        };
 
         let new_tokens = quote! {
             ::dotnet_bindgen_core::MethodArgument {
@@ -154,12 +156,14 @@ impl AstFunction {
     }
 
     fn arguments(&self) -> AstArray<AstMethodArgument> {
-        let ast_arguments = self.source.args
+        let ast_arguments = self
+            .source
+            .args
             .iter()
             .enumerate()
             .map(|(i, arg)| AstMethodArgument {
                 source: arg.clone(),
-                index: i
+                index: i,
             })
             .collect();
 
@@ -188,7 +192,9 @@ impl ToTokens for AstFunction {
 
         let func_name_reference = self.name().reference_tokens();
         let arguments_reference = self.arguments().reference_tokens();
-        let return_type = AstType { source: self.source.return_type.clone() };
+        let return_type = AstType {
+            source: self.source.return_type.clone(),
+        };
         let exposed_ident = format_ident!("__bindgen_func_{}", &self.source.name as &str);
         inner_tokens.extend(quote! {
             #[no_mangle]
