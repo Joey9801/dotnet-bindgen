@@ -9,6 +9,8 @@ use goblin::Object;
 
 use dotnet_bindgen_core::*;
 
+mod ast;
+
 #[derive(Debug)]
 struct LoadedSection {
     header: SectionHeader,
@@ -127,11 +129,8 @@ impl BindgenData {
         Ok(loaded)
     }
 
-    // TODO: The lifetime parameter isn't really static The data inside the returned
-    // BindgenFunction only lives as long as self. Probably need to add some phantom member to
-    // BindgenData to hold a finite lifetime parameter.
-    pub fn get_function(&self) -> &BindgenFunction<'static> {
-        let first_ptr = self.bindgen_section.data.as_ptr() as *mut BindgenFunction<'static>;
+    pub fn get_function<'a>(&'a self) -> &'a BindgenFunction<'a> {
+        let first_ptr = self.bindgen_section.data.as_ptr() as *mut BindgenFunction<'a>;
         unsafe { &*first_ptr }
     }
 }
@@ -143,6 +142,11 @@ fn main() {
         n if n >= 2 => Path::new(&args[1]),
         _ => exit(0),
     };
+
+    let filename = path.file_name()
+        .expect("Expect a filename in the path".into())
+        .to_str()
+        .expect("Expec the filename to be valid unicode");
 
     let mut fd = File::open(path).unwrap();
     let mut buffer = Vec::new();
@@ -160,14 +164,25 @@ fn main() {
         }
     };
 
-    println!("Successfully loaded {}", path.display());
-    let func = data.get_function();
-    println!("    Function name: {}", func.name);
-    println!("    Return type: {:?}", func.return_type);
-    println!("    Args:");
-    for (i, arg) in func.args.iter().enumerate() {
-        println!("      Arg {}:", i);
-        println!("         Name: {}", arg.name);
-        println!("         Type: {:?}", arg.ffi_type);
-    }
+    let root = ast::Root {
+        children: vec![
+            Box::new(ast::UsingStatement { path: "System.Runtime.InteropServices".to_string() }),
+            Box::new(ast::Namespace {
+                name: "Test.Namespace".to_string(),
+                children: vec![
+                    Box::new(ast::Class {
+                        name: "Imports".to_string(),
+                        methods: vec![
+                            ast::ImportedMethod {
+                                binary_name: filename.to_string(),
+                                func_data: data.get_function().clone(),
+                            }
+                        ]
+                    })
+                ]
+            }),
+        ]
+    };
+    let mut f = std::io::stdout();
+    root.render(&mut f).unwrap();
 }
