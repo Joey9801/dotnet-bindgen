@@ -50,7 +50,7 @@ pub trait AstNode {
 }
 
 impl AstNode for FfiType {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+    fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
         match self {
             FfiType::Int { width, signed } => {
                 let base = if *signed { "Int" } else { "UInt" };
@@ -88,7 +88,7 @@ impl<'a> Root<'a> {
         }
 
         for using in &self.using_statements {
-            using.render(f, ctx.clone());
+            using.render(f, ctx.clone())?;
             first = false;
         }
 
@@ -102,16 +102,6 @@ impl<'a> Root<'a> {
         }
 
         Ok(())
-    }
-}
-
-pub struct LineComment {
-    pub text: String,
-}
-
-impl AstNode for LineComment {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "// {}", self.text)
     }
 }
 
