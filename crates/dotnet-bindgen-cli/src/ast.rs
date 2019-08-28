@@ -1,5 +1,7 @@
 use std::io;
 
+use heck::{CamelCase, MixedCase};
+
 use dotnet_bindgen_core::*;
 
 static INDENT_TOK: &'static str = "    ";
@@ -69,8 +71,15 @@ impl<'a> Root<'a> {
     pub fn render(&self, f: &mut dyn io::Write) -> Result<(), io::Error> {
         let ctx = RenderContext::default();
 
+        let mut first = true;
         for child in &self.children {
+            if !first {
+                // Extra blank line between top level blocks
+                write!(f, "\n")?;
+            }
+
             child.render(f, ctx.clone())?;
+            first = false;
         }
 
         Ok(())
@@ -140,7 +149,7 @@ pub struct ImportedMethod<'a> {
 
 impl<'a> ImportedMethod<'a> {
     fn csharp_name(&self) -> String {
-        self.func_data.name.to_string()
+        self.func_data.name.to_camel_case()
     }
 }
 
@@ -161,7 +170,7 @@ impl<'a> AstNode for ImportedMethod<'a> {
             }
 
             arg.ffi_type.render(f, ctx.clone())?;
-            write!(f, " {}", arg.name)?;
+            write!(f, " {}", arg.name.to_mixed_case())?;
             first = false;
         }
 
@@ -174,11 +183,13 @@ impl<'a> AstNode for ImportedMethod<'a> {
 pub struct Class<'a> {
     pub name: String,
     pub methods: Vec<ImportedMethod<'a>>,
+    pub is_static: bool
 }
 
 impl<'a> AstNode for Class<'a> {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "public class {}", self.name)?;
+        let static_part = if self.is_static { "static " } else { "" };
+        render_ln!(f, &ctx, "public {}class {}", static_part, self.name)?;
         render_ln!(f, &ctx, "{{")?;
 
         for method in &self.methods {

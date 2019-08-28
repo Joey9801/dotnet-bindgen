@@ -166,15 +166,21 @@ fn main() {
 
     let root = ast::Root {
         children: vec![
-            Box::new(ast::UsingStatement { path: "System.Runtime.InteropServices".to_string() }),
+            Box::new(ast::BlockComment {
+                text: vec![
+                    "This is a generated file, do not modify by hand.".into(),
+                ]
+            }),
+            Box::new(ast::UsingStatement { path: "System.Runtime.InteropServices".into() }),
             Box::new(ast::Namespace {
-                name: "Test.Namespace".to_string(),
+                name: "Test.Namespace".into(),
                 children: vec![
                     Box::new(ast::Class {
-                        name: "Imports".to_string(),
+                        name: "Imports".into(),
+                        is_static: true,
                         methods: vec![
                             ast::ImportedMethod {
-                                binary_name: filename.to_string(),
+                                binary_name: filename.into(),
                                 func_data: data.get_function().clone(),
                             }
                         ]

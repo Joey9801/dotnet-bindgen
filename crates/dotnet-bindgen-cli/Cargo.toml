@@ -8,3 +8,4 @@ edition = "2018"
 dotnet-bindgen-core = { path = "../dotnet-bindgen-core" }
 goblin = "0.0.24"
 syn = "1"
+heck = "0.3"
