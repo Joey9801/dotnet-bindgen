@@ -165,13 +165,18 @@ fn main() {
     };
 
     let root = ast::Root {
-        children: vec![
-            Box::new(ast::BlockComment {
+        file_comment: Some(
+            ast::BlockComment {
                 text: vec![
                     "This is a generated file, do not modify by hand.".into(),
                 ]
-            }),
-            Box::new(ast::UsingStatement { path: "System.Runtime.InteropServices".into() }),
+            }
+        ),
+        using_statements: vec![
+            ast::UsingStatement { path: "System".into() },
+            ast::UsingStatement { path: "System.Runtime.InteropServices".into() },
+        ],
+        children: vec![
             Box::new(ast::Namespace {
                 name: "Test.Namespace".into(),
                 children: vec![

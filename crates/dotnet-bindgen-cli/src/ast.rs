@@ -64,6 +64,8 @@ impl AstNode for FfiType {
 }
 
 pub struct Root<'a> {
+    pub file_comment: Option<BlockComment>,
+    pub using_statements: Vec<UsingStatement>,
     pub children: Vec<Box<dyn AstNode + 'a>>,
 }
 
@@ -72,9 +74,26 @@ impl<'a> Root<'a> {
         let ctx = RenderContext::default();
 
         let mut first = true;
+
+        match &self.file_comment {
+            Some(c) => {
+                c.render(f, ctx.clone())?;
+                first = false;
+            },
+            None => (),
+        }
+
+        if !first && !self.using_statements.is_empty() {
+            write!(f, "\n")?;
+        }
+
+        for using in &self.using_statements {
+            using.render(f, ctx.clone());
+            first = false;
+        }
+
         for child in &self.children {
             if !first {
-                // Extra blank line between top level blocks
                 write!(f, "\n")?;
             }
 
@@ -155,10 +174,11 @@ impl<'a> ImportedMethod<'a> {
 
 impl<'a> AstNode for ImportedMethod<'a> {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "[DllImport(\"{}\", entrypoint=\"{}\")]", self.binary_name, self.func_data.name)?;
+        render_ln!(f, &ctx, "[DllImport(\"{}\", EntryPoint = \"{}\")]", self.binary_name, self.func_data.name)?;
 
         render_indent(f, &ctx)?;
 
+        write!(f, "public static extern ")?;
         self.func_data.return_type.render(f, ctx.clone())?;
         write!(f, " {}(", self.csharp_name())?;
 
