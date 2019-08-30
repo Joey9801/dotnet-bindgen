@@ -2,3 +2,7 @@
 target/
 **/*.rs.bk
 Cargo.lock
+bin/
+obj/
+.idea/
+dotnet_lib/
