@@ -53,8 +53,15 @@ impl AstNode for FfiType {
     fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
         match self {
             FfiType::Int { width, signed } => {
-                let base = if *signed { "Int" } else { "UInt" };
-                write!(f, "{}{}", base, width)?;
+                match width {
+                    8 => if *signed { write!(f, "SByte")?; } else { write!(f, "Byte")?; }
+                    16 | 32 | 64 =>  {
+                        let base = if *signed { "Int" } else { "UInt" };
+                        write!(f, "{}{}", base, width)?;
+                    },
+                    // TODO: technically not unreachable, should return a sensible error.
+                    _ => unreachable!(),
+                }
             },
             FfiType::Void => write!(f, "void")?,
         };
