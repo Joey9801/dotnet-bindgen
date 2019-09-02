@@ -76,7 +76,15 @@ impl AstNode for FfiType {
     }
 }
 
-pub struct Root {
+impl AstNode for BoundType {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        match self {
+            BoundType::FfiType(ffi_type) => ffi_type.render(f, ctx),
+        }
+    }
+}
+
+pub struct Root<'a> {
     pub file_comment: Option<BlockComment>,
     pub using_statements: Vec<UsingStatement>,
     pub children: Vec<Box<dyn AstNode>>,
@@ -188,7 +196,7 @@ impl AstNode for ImportedMethod {
         render_indent(f, &ctx)?;
 
         write!(f, "public static extern ")?;
-        self.func_data.return_type.render(f, ctx.clone())?;
+        self.func_data.return_ty.render(f, ctx.clone())?;
         write!(f, " {}(", self.csharp_name())?;
 
         // TODO: Implement Iterator for MaybeOwnedArr
@@ -198,7 +206,7 @@ impl AstNode for ImportedMethod {
                 write!(f, ", ")?;
             }
 
-            arg.ffi_type.render(f, ctx.clone())?;
+            arg.ty.render(f, ctx.clone())?;
             write!(f, " {}", arg.name.to_mixed_case())?;
             first = false;
         }

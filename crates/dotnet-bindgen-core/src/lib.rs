@@ -11,6 +11,7 @@ pub enum BindgenCoreErr {
     UnknownType,
 }
 
+/// Represents a type that is safe/well defined across the FFI boundary.
 #[repr(C)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FfiType {
@@ -18,6 +19,7 @@ pub enum FfiType {
     Void,
 }
 
+// TODO: Move this parser into macro-support as part of the rest of the parser.
 impl FromStr for FfiType {
     type Err = BindgenCoreErr;
 
@@ -62,19 +64,27 @@ impl FromStr for FfiType {
     }
 }
 
+/// Represents any type that may appear in the signature of functinos with generated bindings.
 #[repr(C)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MethodArgument {
-    pub name: String,
-    pub ffi_type: FfiType,
+#[derive(Debug, Clone)]
+pub enum BoundType {
+    /// A simple type that requires no marshalling
+    FfiType(FfiType),
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BindgenFunction {
-    pub name: String,
-    pub args: Vec<MethodArgument>,
-    pub return_type: FfiType,
+#[derive(Debug, Clone)]
+pub struct MethodArgument<'a> {
+    pub name: MaybeOwnedString<'a>,
+    pub ty: BoundType,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct BindgenFunction<'a> {
+    pub name: MaybeOwnedString<'a>,
+    pub args: MaybeOwnedArr<'a, MethodArgument<'a>>,
+    pub return_ty: BoundType,
 }
 
 // Important to be <= 8 characters

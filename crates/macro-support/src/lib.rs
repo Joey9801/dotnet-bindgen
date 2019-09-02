@@ -92,14 +92,15 @@ impl MacroParse for syn::ItemFn {
                 }
                 syn::FnArg::Typed(pat_type) => {
                     let name = parse_pat(&pat_type.pat)?;
-                    let ffi_type = parse_type(&pat_type.ty)?;
-                    MethodArgument { ffi_type, name }
+                    let ty = parse_type(&pat_type.ty)?;
+                    MethodArgument { ty, name }
                 }
             });
         }
 
-        let return_type = match &self.sig.output {
-            syn::ReturnType::Default => FfiType::Void,
+        let args = MaybeOwnedArr::Owned(args);
+        let return_ty = match &self.sig.output {
+            syn::ReturnType::Default => BoundType::FfiType(FfiType::Void),
             syn::ReturnType::Type(_arrow, ty) => parse_type(&ty)?,
         };
         let name = self.sig.ident.to_string();
@@ -107,7 +108,7 @@ impl MacroParse for syn::ItemFn {
         let func = BindgenFunction {
             name,
             args,
-            return_type,
+            return_ty,
         };
 
         program.exports.push(Export::Func(func));
@@ -137,7 +138,7 @@ fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<String, Diagnostic> {
     Ok(pat_ident.ident.to_string())
 }
 
-fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
+fn parse_type(ty: &syn::Type) -> Result<BoundType, Diagnostic> {
     let err = Err(err_span!(
         ty,
         "Can't generate binding metadata for this type"
@@ -166,7 +167,7 @@ fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
 
             let ident = only_segment.ident.to_string();
             match ident.parse() {
-                Ok(ty) => ty,
+                Ok(ffi_type) => BoundType::FfiType(ffi_type),
                 Err(_) => return err,
             }
         }

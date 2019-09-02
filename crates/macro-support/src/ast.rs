@@ -87,23 +87,33 @@ impl ByteString {
 }
 
 struct AstType {
-    source: FfiType,
+    source: BoundType,
 }
 
 impl ToTokens for AstType {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         use dotnet_bindgen_core::FfiType::*;
 
-        let new_tokens = match self.source {
-            Int { width, signed } => quote! {
-                ::dotnet_bindgen_core::FfiType::Int {
-                    width: #width,
-                    signed: #signed,
+        let new_tokens = match &self.source {
+            BoundType::FfiType(ffi_type) => {
+                let inner = match ffi_type {
+                    Int { width, signed } => quote! {
+                        ::dotnet_bindgen_core::FfiType::Int {
+                            width: #width,
+                            signed: #signed,
+                        }
+                    },
+                    Void => quote! {
+                        ::dotnet_bindgen_core::FfiType::Void
+                    },
+                };
+
+                quote! {
+                    ::dotnet_bindgen_core::BoundType::FfiType(
+                        #inner
+                    )
                 }
-            },
-            Void => quote! {
-                ::dotnet_bindgen_core::FfiType::Void
-            },
+            }
         };
 
         tokens.extend(new_tokens);
@@ -129,7 +139,7 @@ impl ToTokens for AstMethodArgument {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let name_ident = self.name().ident;
         let ffi_type = AstType {
-            source: self.source.ffi_type.clone(),
+            source: self.source.ty.clone(),
         };
 
         let new_tokens = quote! {
@@ -137,7 +147,7 @@ impl ToTokens for AstMethodArgument {
                 name: ::dotnet_bindgen_core::MaybeOwnedString {
                     bytes: ::dotnet_bindgen_core::MaybeOwnedArr::Ref(&#name_ident),
                 },
-                ffi_type: #ffi_type
+                ty: #ffi_type
             }
         };
 
@@ -193,7 +203,7 @@ impl ToTokens for AstFunction {
         let func_name_reference = self.name().reference_tokens();
         let arguments_reference = self.arguments().reference_tokens();
         let return_type = AstType {
-            source: self.source.return_type.clone(),
+            source: self.source.return_ty.clone(),
         };
         let exposed_ident = format_ident!("__bindgen_func_{}", &self.source.name as &str);
         inner_tokens.extend(quote! {
@@ -202,7 +212,7 @@ impl ToTokens for AstFunction {
             pub static #exposed_ident: ::dotnet_bindgen_core::BindgenFunction = ::dotnet_bindgen_core::BindgenFunction {
                 name: #func_name_reference,
                 args: #arguments_reference,
-                return_type: #return_type,
+                return_ty: #return_type,
             };
         });
 
