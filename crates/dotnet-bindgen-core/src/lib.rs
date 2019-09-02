@@ -72,11 +72,26 @@ pub enum BoundType {
     FfiType(FfiType),
 }
 
+impl BoundType {
+    pub fn is_ffi(&self) -> bool {
+        match &self {
+            BoundType::FfiType(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct MethodArgument<'a> {
     pub name: MaybeOwnedString<'a>,
     pub ty: BoundType,
+}
+
+impl<'a> MethodArgument<'a> {
+    pub fn requires_thunk(&self) -> bool {
+        !self.ty.is_ffi()
+    }
 }
 
 #[repr(C)]
@@ -85,6 +100,12 @@ pub struct BindgenFunction<'a> {
     pub name: MaybeOwnedString<'a>,
     pub args: MaybeOwnedArr<'a, MethodArgument<'a>>,
     pub return_ty: BoundType,
+}
+
+impl<'a> BindgenFunction<'a> {
+    pub fn requires_thunk(&self) -> bool {
+        !self.return_ty.is_ffi() || self.args.iter().any(|a| a.requires_thunk())
+    }
 }
 
 // Important to be <= 8 characters
