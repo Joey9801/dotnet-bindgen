@@ -70,13 +70,13 @@ impl AstNode for FfiType {
     }
 }
 
-pub struct Root<'a> {
+pub struct Root {
     pub file_comment: Option<BlockComment>,
     pub using_statements: Vec<UsingStatement>,
-    pub children: Vec<Box<dyn AstNode + 'a>>,
+    pub children: Vec<Box<dyn AstNode>>,
 }
 
-impl<'a> Root<'a> {
+impl Root {
     pub fn render(&self, f: &mut dyn io::Write) -> Result<(), io::Error> {
         let ctx = RenderContext::default();
 
@@ -138,12 +138,12 @@ impl AstNode for UsingStatement {
     }
 }
 
-pub struct Namespace<'a> {
+pub struct Namespace {
     pub name: String,
-    pub children: Vec<Box<dyn AstNode + 'a>>,
+    pub children: Vec<Box<dyn AstNode>>,
 }
 
-impl<'a> AstNode for Namespace<'a> {
+impl AstNode for Namespace {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_ln!(f, &ctx, "namespace {}", self.name)?;
         render_ln!(f, &ctx, "{{")?;
@@ -158,18 +158,18 @@ impl<'a> AstNode for Namespace<'a> {
     }
 }
 
-pub struct ImportedMethod<'a> {
+pub struct ImportedMethod {
     pub binary_name: String,
-    pub func_data: BindgenFunction<'a>,
+    pub func_data: BindgenFunction,
 }
 
-impl<'a> ImportedMethod<'a> {
+impl ImportedMethod {
     fn csharp_name(&self) -> String {
         self.func_data.name.to_camel_case()
     }
 }
 
-impl<'a> AstNode for ImportedMethod<'a> {
+impl AstNode for ImportedMethod {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_ln!(f, &ctx, "[DllImport(\"{}\", EntryPoint = \"{}\")]", self.binary_name, self.func_data.name)?;
 
@@ -197,13 +197,13 @@ impl<'a> AstNode for ImportedMethod<'a> {
     }
 }
 
-pub struct Class<'a> {
+pub struct Class {
     pub name: String,
-    pub methods: Vec<ImportedMethod<'a>>,
+    pub methods: Vec<ImportedMethod>,
     pub is_static: bool
 }
 
-impl<'a> AstNode for Class<'a> {
+impl AstNode for Class {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         let static_part = if self.is_static { "static " } else { "" };
         render_ln!(f, &ctx, "public {}class {}", static_part, self.name)?;

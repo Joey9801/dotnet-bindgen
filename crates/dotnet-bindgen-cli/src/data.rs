@@ -41,91 +41,19 @@ impl LoadedSection {
 pub struct BindgenData {
     pub source_file: std::path::PathBuf,
 
-    data_section: LoadedSection,
-    bindgen_section: LoadedSection,
+    loaded_func: BindgenFunction
 }
 
 impl BindgenData {
-    /// Maps a virtual memory address from the loaded file to address in a loaded section.
-    unsafe fn map_addr(&self, vm_addr: *const u8) -> Option<*const u8> {
-        let vm_addr = vm_addr as usize;
-
-        if self.bindgen_section.header.vm_range().contains(&vm_addr) {
-            let offset = vm_addr - self.bindgen_section.header.vm_range().start;
-            Some(self.bindgen_section.data.as_ptr().offset(offset as isize))
-        } else if self.data_section.header.vm_range().contains(&vm_addr) {
-            let offset = vm_addr - self.data_section.header.vm_range().start;
-            Some(self.data_section.data.as_ptr().offset(offset as isize))
-        } else {
-            None
-        }
-    }
-
-    /// Maps a virtual memory address from the loaded file to address in a loaded section.
-    unsafe fn map_mut_addr(&mut self, vm_addr: *const u8) -> Option<*mut u8> {
-        let vm_addr = vm_addr as usize;
-
-        if self.bindgen_section.header.vm_range().contains(&vm_addr) {
-            let offset = vm_addr - self.bindgen_section.header.vm_range().start;
-            Some(
-                self.bindgen_section
-                    .data
-                    .as_mut_ptr()
-                    .offset(offset as isize),
-            )
-        } else if self.data_section.header.vm_range().contains(&vm_addr) {
-            let offset = vm_addr - self.data_section.header.vm_range().start;
-            Some(self.data_section.data.as_mut_ptr().offset(offset as isize))
-        } else {
-            None
-        }
-    }
-
-    unsafe fn perform_elf_relocs(&mut self, elf: &Elf) -> Result<(), ()> {
-        for reloc in elf.dynrelas.iter().chain(elf.dynrels.iter()) {
-            match self.map_mut_addr(reloc.r_offset as *const u8) {
-                Some(reloc_addr) => {
-                    let sym = match elf.dynsyms.get(reloc.r_sym) {
-                        Some(sym) => sym,
-                        None => {
-                            println!("Dynamic relocation refers to symbol not in dynsyms");
-                            return Err(());
-                        }
-                    };
-
-                    let sym_vm_ptr = match reloc.r_addend {
-                        Some(addend) => (sym.st_value as i64 + addend) as u64,
-                        None => sym.st_value,
-                    } as *const u8;
-
-                    match self.map_addr(sym_vm_ptr) {
-                        Some(sym_addr) => *(reloc_addr as *mut *const u8) = sym_addr,
-                        None => {
-                            println!("self section contains a pointer to an unself section");
-                            return Err(());
-                        }
-                    }
-                }
-                None => (),
-            };
-        }
-
-        Ok(())
-    }
-
     fn load_elf(elf: &Elf, buffer: &[u8], source_file: std::path::PathBuf) -> Result<Self, ()> {
         let data_section = LoadedSection::new(elf, buffer, BINDGEN_DATA_SECTION_NAME)?;
-        let bindgen_section = LoadedSection::new(elf, buffer, BINDGEN_SECTION_NAME)?;
+        let metadata_string = std::str::from_utf8(&data_section.data)
+            .expect("Expected valid UTF-8 data in bindgen data section");
 
-        let mut loaded = Self {
-            source_file,
-            data_section,
-            bindgen_section,
-        };
+        let loaded_func = serde_json::from_str(metadata_string)
+            .expect("Expected valid json data in bindgen data section");
 
-        unsafe { loaded.perform_elf_relocs(elf)? };
-
-        Ok(loaded)
+        Ok(Self { source_file, loaded_func })
     }
 
     pub fn load(file: std::path::PathBuf) -> Result<Self, ()> {
@@ -149,8 +77,7 @@ impl BindgenData {
         Ok(data)
     }
 
-    pub fn get_function<'a>(&'a self) -> &'a BindgenFunction<'a> {
-        let first_ptr = self.bindgen_section.data.as_ptr() as *mut BindgenFunction<'a>;
-        unsafe { &*first_ptr }
+    pub fn get_function(&self) -> &BindgenFunction {
+        &self.loaded_func
     }
 }
