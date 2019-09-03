@@ -2,8 +2,6 @@
 //!
 //! This component is intended to be fairly minimal, to reduce the impact of having it included in client code.
 
-use std::fmt::{Debug, Display};
-use std::ops::Deref;
 use std::str::FromStr;
 
 use serde::{Serialize, Deserialize};
