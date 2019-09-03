@@ -4,7 +4,134 @@
 
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+/// Marker trait for types that are trivially stable ABI types
+trait BindgenAbiStable {}
+
+impl BindgenAbiStable for i8 {}
+impl BindgenAbiStable for i16 {}
+impl BindgenAbiStable for i32 {}
+impl BindgenAbiStable for i64 {}
+impl BindgenAbiStable for u8 {}
+impl BindgenAbiStable for u16 {}
+impl BindgenAbiStable for u32 {}
+impl BindgenAbiStable for u64 {}
+
+/// Defines how to translate a non-trivial type to/from a stable ABI type
+trait BindgenAbiTranslatable {
+    type AbiType: BindgenAbiStable;
+
+    fn from_abi_type(abi_value: Self::AbiType) -> Self;
+    fn to_abi_type(&self) -> Self::AbiType;
+}
+
+#[repr(C)]
+struct SliceAbi<T: BindgenAbiStable> {
+    ptr: *const T,
+    len: u64,
+}
+
+impl<T: BindgenAbiStable> BindgenAbiStable for SliceAbi<T> {}
+
+impl<T: BindgenAbiStable> BindgenAbiTranslatable for &[T] {
+    type AbiType = SliceAbi<T>;
+
+    fn from_abi_type(abi_value: Self::AbiType) -> Self {
+        unsafe { std::slice::from_raw_parts(abi_value.ptr, abi_value.len as usize) }
+    }
+
+    fn to_abi_type(&self) -> Self::AbiType {
+        let ptr = self.as_ptr();
+        let len = self.len() as u64;
+        Self::AbiType { ptr, len }
+    }
+}
+
+/// Abstraction over the two useful ways of representing arrays in bindgen data
+///
+/// # Motivation
+///
+/// When dumping data into the binary, we want tight control of where the bytes
+/// live, but managing references is super tricky when generating these structs
+///  -> Use the owned variant for easy generation of the data
+///  -> Use the reference variant for serialising/parsing the structures into link sections
+///
+/// # Examples
+///
+/// ```
+/// // The array [1, 2, 3] lives somewhere on the heap
+/// // Can't initialise a static variable like this.
+/// let a = MaybeOwnedArr::Owned(vec![1, 2, 3]);
+/// ```
+///
+/// ```
+/// // Statically data that will be written to a well defined binary section
+/// #[link_section(".foo")]
+/// pub static DATA: [i32; 3] = [1, 2, 3];
+///
+/// #[no_mangle]
+/// pub static ARR: MaybeOwnedArr<'static, i32> = MaybeOwnedArr::Ref(&DATA);
+/// ```
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub enum MaybeOwnedArr<'a, T> {
+    Owned(Vec<T>),
+    Ref(&'a [T]),
+}
+
+impl<'a, T> Deref for MaybeOwnedArr<'a, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            MaybeOwnedArr::Ref(r) => r,
+            MaybeOwnedArr::Owned(v) => &v[..],
+        }
+    }
+}
+
+/// Thin wrapper around MaybeOwnedArr for strings
+#[derive(Clone)]
+#[repr(C)]
+pub struct MaybeOwnedString<'a> {
+    pub bytes: MaybeOwnedArr<'a, u8>,
+}
+
+impl<'a> Display for MaybeOwnedString<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let parsed_str =
+            std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+        write!(f, "{}", parsed_str)
+    }
+}
+
+impl<'a> Debug for MaybeOwnedString<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let parsed_str =
+            std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data");
+
+        match self.bytes {
+            MaybeOwnedArr::Owned(_) => write!(f, "MaybeOwnedString::Owned({:?})", parsed_str),
+            MaybeOwnedArr::Ref(_) => write!(f, "MaybeOwnedString::Ref({:?})", parsed_str),
+        }
+    }
+}
+
+impl<'a> FromStr for MaybeOwnedString<'a> {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = MaybeOwnedArr::Owned(s.as_bytes().to_vec());
+        Ok(MaybeOwnedString { bytes })
+    }
+}
+
+impl<'a> Deref for MaybeOwnedString<'a> {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        std::str::from_utf8(&self.bytes).expect("MaybeOwnedString contains non-utf8 data")
+    }
+}
 
 #[derive(Debug)]
 pub enum BindgenCoreErr {
@@ -64,7 +191,7 @@ impl FromStr for FfiType {
     }
 }
 
-/// Represents any type that may appear in the signature of functinos with generated bindings.
+/// Represents any type that may appear in the signature of functions with generated bindings.
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub enum BoundType {
