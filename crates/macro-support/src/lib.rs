@@ -14,7 +14,7 @@ enum Export {
 impl Export {
     fn name(&self) -> String {
         match self {
-            Export::Func(f) => format!("func_{}", f.name)
+            Export::Func(f) => format!("func_{}", f.name),
         }
     }
 }

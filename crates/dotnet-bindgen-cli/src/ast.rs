@@ -54,15 +54,21 @@ impl AstNode for FfiType {
         match self {
             FfiType::Int { width, signed } => {
                 match width {
-                    8 => if *signed { write!(f, "SByte")?; } else { write!(f, "Byte")?; }
-                    16 | 32 | 64 =>  {
+                    8 => {
+                        if *signed {
+                            write!(f, "SByte")?;
+                        } else {
+                            write!(f, "Byte")?;
+                        }
+                    }
+                    16 | 32 | 64 => {
                         let base = if *signed { "Int" } else { "UInt" };
                         write!(f, "{}{}", base, width)?;
-                    },
+                    }
                     // TODO: technically not unreachable, should return a sensible error.
                     _ => unreachable!(),
                 }
-            },
+            }
             FfiType::Void => write!(f, "void")?,
         };
 
@@ -86,7 +92,7 @@ impl Root {
             Some(c) => {
                 c.render(f, ctx.clone())?;
                 first = false;
-            },
+            }
             None => (),
         }
 
@@ -171,7 +177,13 @@ impl ImportedMethod {
 
 impl AstNode for ImportedMethod {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "[DllImport(\"{}\", EntryPoint = \"{}\")]", self.binary_name, self.func_data.name)?;
+        render_ln!(
+            f,
+            &ctx,
+            "[DllImport(\"{}\", EntryPoint = \"{}\")]",
+            self.binary_name,
+            self.func_data.name
+        )?;
 
         render_indent(f, &ctx)?;
 
@@ -200,7 +212,7 @@ impl AstNode for ImportedMethod {
 pub struct Class {
     pub name: String,
     pub methods: Vec<ImportedMethod>,
-    pub is_static: bool
+    pub is_static: bool,
 }
 
 impl AstNode for Class {

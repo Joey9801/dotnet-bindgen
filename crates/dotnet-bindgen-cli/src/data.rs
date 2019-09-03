@@ -41,7 +41,7 @@ impl LoadedSection {
 pub struct BindgenData {
     pub source_file: std::path::PathBuf,
 
-    loaded_func: BindgenFunction
+    loaded_func: BindgenFunction,
 }
 
 impl BindgenData {
@@ -53,7 +53,10 @@ impl BindgenData {
         let loaded_func = serde_json::from_str(metadata_string)
             .expect("Expected valid json data in bindgen data section");
 
-        Ok(Self { source_file, loaded_func })
+        Ok(Self {
+            source_file,
+            loaded_func,
+        })
     }
 
     pub fn load(file: std::path::PathBuf) -> Result<Self, ()> {

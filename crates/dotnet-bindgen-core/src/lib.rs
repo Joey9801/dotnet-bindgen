@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum BindgenCoreErr {
@@ -23,14 +23,38 @@ impl FromStr for FfiType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ty = match s {
-            "i8" => FfiType::Int { width: 8, signed: true },
-            "i16" => FfiType::Int { width: 16, signed: true },
-            "i32" => FfiType::Int { width: 32, signed: true },
-            "i64" => FfiType::Int { width: 64, signed: true },
-            "u8" => FfiType::Int { width: 8, signed: false },
-            "u16" => FfiType::Int { width: 16, signed: false },
-            "u32" => FfiType::Int { width: 32, signed: false },
-            "u64" => FfiType::Int { width: 64, signed: false },
+            "i8" => FfiType::Int {
+                width: 8,
+                signed: true,
+            },
+            "i16" => FfiType::Int {
+                width: 16,
+                signed: true,
+            },
+            "i32" => FfiType::Int {
+                width: 32,
+                signed: true,
+            },
+            "i64" => FfiType::Int {
+                width: 64,
+                signed: true,
+            },
+            "u8" => FfiType::Int {
+                width: 8,
+                signed: false,
+            },
+            "u16" => FfiType::Int {
+                width: 16,
+                signed: false,
+            },
+            "u32" => FfiType::Int {
+                width: 32,
+                signed: false,
+            },
+            "u64" => FfiType::Int {
+                width: 64,
+                signed: false,
+            },
             _ => return Err(BindgenCoreErr::UnknownType),
         };
 
