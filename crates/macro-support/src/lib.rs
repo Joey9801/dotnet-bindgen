@@ -1,25 +1,40 @@
-use std::str::FromStr;
-
-use proc_macro2::TokenStream;
-use quote::ToTokens;
+use proc_macro2::{Literal, TokenStream};
+use quote::{format_ident, quote, ToTokens};
 
 mod error;
 pub use crate::error::Diagnostic;
-
-mod ast;
 
 use dotnet_bindgen_core::*;
 
 #[derive(Debug)]
 enum Export {
-    Func(ast::AstFunction),
+    Func(BindgenFunction),
+}
+
+impl Export {
+    fn name(&self) -> String {
+        match self {
+            Export::Func(f) => format!("func_{}", f.name)
+        }
+    }
 }
 
 impl ToTokens for Export {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            Export::Func(f) => f.to_tokens(tokens),
-        }
+        let json_string = match self {
+            Export::Func(f) => serde_json::to_string(&f).unwrap(),
+        };
+
+        let exposed_ident = format_ident!("__bindgen_{}", self.name());
+        let bytes = json_string.as_bytes();
+        let len = bytes.len();
+        let data = Literal::byte_string(bytes);
+
+        tokens.extend(quote! {
+            #[link_section = #BINDGEN_DATA_SECTION_NAME]
+            #[no_mangle]
+            pub static #exposed_ident: [u8; #len] = *#data;
+        });
     }
 }
 
@@ -83,12 +98,11 @@ impl MacroParse for syn::ItemFn {
             });
         }
 
-        let args = MaybeOwnedArr::Owned(args);
         let return_type = match &self.sig.output {
             syn::ReturnType::Default => FfiType::Void,
             syn::ReturnType::Type(_arrow, ty) => parse_type(&ty)?,
         };
-        let name = MaybeOwnedString::from_str(&self.sig.ident.to_string()).unwrap();
+        let name = self.sig.ident.to_string();
 
         let func = BindgenFunction {
             name,
@@ -96,20 +110,20 @@ impl MacroParse for syn::ItemFn {
             return_type,
         };
 
-        program.exports.push(Export::Func(func.into()));
+        program.exports.push(Export::Func(func));
 
         Ok(())
     }
 }
 
-fn parse_pat(pat: &syn::Pat) -> Result<MaybeOwnedString<'static>, Diagnostic> {
+fn parse_pat(pat: &syn::Pat) -> Result<String, Diagnostic> {
     match pat {
         syn::Pat::Ident(pat_ident) => parse_pat_ident(&pat_ident),
         _ => bail_span!(pat, "Can't generate binding metadata for this pattern"),
     }
 }
 
-fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString<'static>, Diagnostic> {
+fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<String, Diagnostic> {
     match &pat_ident.by_ref {
         Some(r) => bail_span!(r, "Can't generate binding metadata for ref types"),
         None => (),
@@ -120,7 +134,7 @@ fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<MaybeOwnedString<'static
         None => (),
     };
 
-    Ok(MaybeOwnedString::from_str(&pat_ident.ident.to_string()).unwrap())
+    Ok(pat_ident.ident.to_string())
 }
 
 fn parse_type(ty: &syn::Type) -> Result<FfiType, Diagnostic> {
