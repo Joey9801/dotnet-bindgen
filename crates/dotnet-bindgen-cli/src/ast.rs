@@ -27,7 +27,7 @@ macro_rules! render_ln {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default)]
 pub struct RenderContext {
     indent_level: u8,
 }
@@ -59,7 +59,7 @@ impl Root {
 
         match &self.file_comment {
             Some(c) => {
-                c.render(f, ctx.clone())?;
+                c.render(f, ctx)?;
                 first = false;
             }
             None => (),
@@ -70,7 +70,7 @@ impl Root {
         }
 
         for using in &self.using_statements {
-            using.render(f, ctx.clone())?;
+            using.render(f, ctx)?;
             first = false;
         }
 
@@ -79,7 +79,7 @@ impl Root {
                 write!(f, "\n")?;
             }
 
-            child.render(f, ctx.clone())?;
+            child.render(f, ctx)?;
             first = false;
         }
 
@@ -245,7 +245,7 @@ impl AstNode for Attribute {
             }
             first = false;
 
-            param.render(f, ctx.clone())?;
+            param.render(f, ctx)?;
         }
 
         for (key, value) in &self.named_parameters {
@@ -254,9 +254,9 @@ impl AstNode for Attribute {
             }
             first = false;
 
-            key.render(f, ctx.clone())?;
+            key.render(f, ctx)?;
             write!(f, " = ")?;
-            value.render(f, ctx.clone())?;
+            value.render(f, ctx)?;
         }
 
         write!(f, ")]\n")?;
@@ -272,9 +272,9 @@ pub struct MethodArgument {
 
 impl AstNode for MethodArgument {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        self.ty.render(f, ctx.clone())?;
+        self.ty.render(f, ctx)?;
         write!(f, " ")?;
-        self.name.render(f, ctx.clone())?;
+        self.name.render(f, ctx)?;
 
         Ok(())
     }
@@ -294,7 +294,7 @@ pub struct Method {
 impl AstNode for Method {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         for attr in &self.attributes {
-            attr.render(f, ctx.clone())?;
+            attr.render(f, ctx)?;
         }
 
         render_indent(f, &ctx)?;
@@ -312,7 +312,7 @@ impl AstNode for Method {
             write!(f, "extern ")?;
         }
 
-        self.return_ty.render(f, ctx.clone())?;
+        self.return_ty.render(f, ctx)?;
         write!(f, " {}(", self.name)?;
 
         let mut first = true;
@@ -322,7 +322,7 @@ impl AstNode for Method {
             }
             first = false;
 
-            arg.render(f, ctx.clone())?;
+            arg.render(f, ctx)?;
         }
 
         let body = match &self.body {
