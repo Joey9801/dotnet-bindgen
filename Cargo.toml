@@ -5,8 +5,8 @@ authors = ["Joe Roberts <joe@jwjr.co.uk>"]
 edition = "2018"
 
 [dependencies]
-syn = { version = "1.0", features = ["full", "fold"] }
 dotnet-bindgen-macro = { path = "./crates/macro" }
+dotnet-bindgen-core = { path = "./crates/dotnet-bindgen-core" }
 
 [workspace]
 members = [

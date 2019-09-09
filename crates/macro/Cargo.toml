@@ -9,7 +9,5 @@ proc-macro = true
 
 [dependencies]
 dotnet-bindgen-macro-support = { path = "../macro-support" }
-dotnet-bindgen-core = { path = "../dotnet-bindgen-core" }
-quote = "1.0"
-syn = { version = "1.0", features = ["full", "fold"] }
 proc-macro2 = "1.0"
+quote = "1.0"
