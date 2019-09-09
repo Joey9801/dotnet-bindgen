@@ -1,4 +1,4 @@
-use proc_macro2::{Literal, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
 
 mod error;
@@ -6,35 +6,116 @@ pub use crate::error::Diagnostic;
 
 use dotnet_bindgen_core::*;
 
-#[derive(Debug)]
-enum Export {
-    Func(BindgenFunction),
+struct ExportedFunctionArg {
+    name: proc_macro2::Ident,
+    ty: syn::Type,
 }
 
-impl Export {
-    fn name(&self) -> String {
-        match self {
-            Export::Func(f) => format!("func_{}", f.name),
+impl std::fmt::Debug for ExportedFunctionArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ty_string = format!("syn::Type({})", self.ty.to_token_stream().to_string());
+        write!(
+            f,
+            "ExportedFunctionArg {{ name: {}, ty: {} }}",
+            self.name, ty_string
+        )
+    }
+}
+
+struct ExportedFunction {
+    name: proc_macro2::Ident,
+    arguments: Vec<ExportedFunctionArg>,
+    return_ty: Option<syn::Type>,
+}
+
+impl std::fmt::Debug for ExportedFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let return_ty_string = match &self.return_ty {
+            Some(t) => format!("Some(syn::Type({}))", t.to_token_stream().to_string()),
+            None => "None".to_string(),
+        };
+
+        write!(
+            f,
+            "ExportedFunction {{ name: {}, arguments: {:?}, return_ty: {:?} }}",
+            self.name, self.arguments, return_ty_string
+        )
+    }
+}
+
+#[derive(Debug)]
+enum Export {
+    Func(ExportedFunction),
+}
+
+impl ToTokens for ExportedFunction {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let mut thunk_args = Vec::new();
+        let mut arg_conversions = Vec::new();
+        let mut arg_descriptors = Vec::new();
+
+        for arg in &self.arguments {
+            let name = &arg.name;
+            let ty = &arg.ty;
+            thunk_args.push(
+                quote! {
+                    #name: <#ty as ::dotnet_bindgen::core::BindgenAbiConvert>::AbiType
+                }
+                .to_token_stream(),
+            );
+
+            arg_conversions.push(quote! {
+                let #name = <#ty as ::dotnet_bindgen::core::BindgenAbiConvert>::from_abi_type(#name);
+            });
+
+            let name_string = name.to_string();
+            arg_descriptors.push(quote! {
+                ::dotnet_bindgen::core::BindgenFunctionArgumentDescriptor {
+                    name: #name_string.to_string(),
+                    ty: <#ty as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe(),
+                }
+            })
         }
+
+        let arg_names = self.arguments.iter().map(|a| a.name.clone());
+
+        let real_name = &self.name;
+        let thunk_name = format_ident!("__bindgen_thunk_{}", self.name);
+        let descriptor_name = format_ident!("{}_func_{}", BINDGEN_DESCRIBE_PREFIX, self.name);
+        let real_name_string = real_name.to_string();
+        let thunk_name_string = thunk_name.to_string();
+
+        let return_ty = &self.return_ty;
+        (quote! {
+            #[no_mangle]
+            #[link_section = ".joe"]
+            pub extern "C" fn #thunk_name(
+                #(#thunk_args),*
+            ) -> <#return_ty as ::dotnet_bindgen::core::BindgenAbiConvert>::AbiType {
+                #(#arg_conversions)*
+                let ret = #real_name(#(#arg_names),*);
+                <#return_ty as ::dotnet_bindgen::core::BindgenAbiConvert>::to_abi_type(ret)
+            }
+
+            #[no_mangle]
+            pub fn #descriptor_name() -> ::dotnet_bindgen::core::BindgenFunctionDescriptor {
+                ::dotnet_bindgen::core::BindgenFunctionDescriptor {
+                    real_name: #real_name_string.to_string(),
+                    thunk_name: #thunk_name_string.to_string(),
+                    arguments: vec![#(#arg_descriptors),*],
+                    return_ty: <#return_ty as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe(),
+                }
+            }
+        })
+        .to_tokens(tokens);
     }
 }
 
 impl ToTokens for Export {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let json_string = match self {
-            Export::Func(f) => serde_json::to_string(&f).unwrap(),
+        match self {
+            Export::Func(f) => f.to_tokens(tokens),
         };
-
-        let exposed_ident = format_ident!("__bindgen_{}", self.name());
-        let bytes = json_string.as_bytes();
-        let len = bytes.len();
-        let data = Literal::byte_string(bytes);
-
-        tokens.extend(quote! {
-            #[link_section = #BINDGEN_DATA_SECTION_NAME]
-            #[no_mangle]
-            pub static #exposed_ident: [u8; #len] = *#data;
-        });
     }
 }
 
@@ -83,48 +164,45 @@ impl MacroParse for syn::Item {
 
 impl MacroParse for syn::ItemFn {
     fn macro_parse(&self, program: &mut Program) -> Result<(), Diagnostic> {
-        let mut args = Vec::new();
+        let mut arguments = Vec::new();
 
         for arg in self.sig.inputs.iter() {
-            args.push(match arg {
+            arguments.push(match arg {
                 syn::FnArg::Receiver(r) => {
                     bail_span!(r, "Can't generate binding metadata for methods")
                 }
                 syn::FnArg::Typed(pat_type) => {
                     let name = parse_pat(&pat_type.pat)?;
-                    let ty = parse_type(&pat_type.ty)?;
-                    MethodArgument { ty, name }
+                    let ty = *pat_type.ty.clone();
+                    ExportedFunctionArg { name, ty }
                 }
             });
         }
 
-        let args = MaybeOwnedArr::Owned(args);
-        let return_ty = match &self.sig.output {
-            syn::ReturnType::Default => BoundType::FfiType(FfiType::Void),
-            syn::ReturnType::Type(_arrow, ty) => parse_type(&ty)?,
+        let name = self.sig.ident.clone();
+        let return_ty: Option<syn::Type> = match &self.sig.output {
+            syn::ReturnType::Default => None,
+            syn::ReturnType::Type(_arrow, ty) => Some(*ty.clone()),
         };
-        let name = self.sig.ident.to_string();
 
-        let func = BindgenFunction {
+        program.exports.push(Export::Func(ExportedFunction {
             name,
-            args,
+            arguments,
             return_ty,
-        };
-
-        program.exports.push(Export::Func(func));
+        }));
 
         Ok(())
     }
 }
 
-fn parse_pat(pat: &syn::Pat) -> Result<String, Diagnostic> {
+fn parse_pat(pat: &syn::Pat) -> Result<proc_macro2::Ident, Diagnostic> {
     match pat {
         syn::Pat::Ident(pat_ident) => parse_pat_ident(&pat_ident),
         _ => bail_span!(pat, "Can't generate binding metadata for this pattern"),
     }
 }
 
-fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<String, Diagnostic> {
+fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<proc_macro2::Ident, Diagnostic> {
     match &pat_ident.by_ref {
         Some(r) => bail_span!(r, "Can't generate binding metadata for ref types"),
         None => (),
@@ -135,46 +213,5 @@ fn parse_pat_ident(pat_ident: &syn::PatIdent) -> Result<String, Diagnostic> {
         None => (),
     };
 
-    Ok(pat_ident.ident.to_string())
-}
-
-fn parse_type(ty: &syn::Type) -> Result<BoundType, Diagnostic> {
-    let err = Err(err_span!(
-        ty,
-        "Can't generate binding metadata for this type"
-    ));
-
-    let ffi_type = match ty {
-        syn::Type::Path(type_path) => {
-            if type_path.qself.is_some() {
-                return err;
-            }
-
-            let path = &type_path.path;
-            if path.leading_colon.is_some() {
-                return err;
-            }
-
-            let seg_count = path.segments.len();
-            if seg_count > 1 || seg_count == 0 {
-                return err;
-            }
-
-            let only_segment = path.segments.first().unwrap();
-            if !only_segment.arguments.is_empty() {
-                return err;
-            }
-
-            let ident = only_segment.ident.to_string();
-            match ident.parse() {
-                Ok(ffi_type) => BoundType::FfiType(ffi_type),
-                Err(_) => return err,
-            }
-        }
-        _ => {
-            return err;
-        }
-    };
-
-    Ok(ffi_type)
+    Ok(pat_ident.ident.clone())
 }
