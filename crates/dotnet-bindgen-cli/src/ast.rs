@@ -1,9 +1,5 @@
 use std::io;
 
-use heck::{CamelCase, MixedCase};
-
-use dotnet_bindgen_core::*;
-
 static INDENT_TOK: &'static str = "    ";
 
 fn render_indent(f: &mut dyn io::Write, ctx: &RenderContext) -> Result<(), io::Error> {
@@ -49,42 +45,7 @@ pub trait AstNode {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error>;
 }
 
-impl AstNode for FfiType {
-    fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
-        match self {
-            FfiType::Int { width, signed } => {
-                match width {
-                    8 => {
-                        if *signed {
-                            write!(f, "SByte")?;
-                        } else {
-                            write!(f, "Byte")?;
-                        }
-                    }
-                    16 | 32 | 64 => {
-                        let base = if *signed { "Int" } else { "UInt" };
-                        write!(f, "{}{}", base, width)?;
-                    }
-                    // TODO: technically not unreachable, should return a sensible error.
-                    _ => unreachable!(),
-                }
-            }
-            FfiType::Void => write!(f, "void")?,
-        };
-
-        Ok(())
-    }
-}
-
-impl AstNode for BoundType {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        match self {
-            BoundType::FfiType(ffi_type) => ffi_type.render(f, ctx),
-        }
-    }
-}
-
-pub struct Root<'a> {
+pub struct Root {
     pub file_comment: Option<BlockComment>,
     pub using_statements: Vec<UsingStatement>,
     pub children: Vec<Box<dyn AstNode>>,
@@ -172,46 +133,212 @@ impl AstNode for Namespace {
     }
 }
 
-pub struct ImportedMethod {
-    pub binary_name: String,
-    pub func_data: BindgenFunction,
+pub enum CSharpType {
+    Void,
+
+    /// SByte == Int8, but Int8 isn't a thing for some reason.
+    SByte,
+    Int16,
+    Int32,
+    Int64,
+
+    /// Byte == UInt8, but UInt8 isn't a thing for some reason
+    Byte,
+    UInt16,
+    UInt32,
+    UInt64,
+
+    Array { elem_type: Box<CSharpType> },
+
+    Ptr { target: Box<CSharpType> },
+
+    Struct { name: Ident }
 }
 
-impl ImportedMethod {
-    fn csharp_name(&self) -> String {
-        self.func_data.name.to_camel_case()
+impl AstNode for CSharpType {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        match self {
+            CSharpType::Void   => write!(f, "void"),
+            CSharpType::SByte  => write!(f, "SByte"),
+            CSharpType::Int16  => write!(f, "Int16"),
+            CSharpType::Int32  => write!(f, "Int32"),
+            CSharpType::Int64  => write!(f, "Int64"),
+            CSharpType::Byte   => write!(f, "Byte"),
+            CSharpType::UInt16 => write!(f, "UInt16"),
+            CSharpType::UInt32 => write!(f, "UInt32"),
+            CSharpType::UInt64 => write!(f, "UInt64"),
+            CSharpType::Array { elem_type } => {
+                elem_type.render(f, ctx)?;
+                write!(f, "[]")
+            },
+            CSharpType::Ptr { target } => {
+                target.render(f, ctx)?;
+                write!(f, "*")
+            },
+            CSharpType::Struct { name } => name.render(f, ctx)
+        }
     }
 }
 
-impl AstNode for ImportedMethod {
+pub struct Ident(pub String);
+
+impl AstNode for Ident {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(
-            f,
-            &ctx,
-            "[DllImport(\"{}\", EntryPoint = \"{}\")]",
-            self.binary_name,
-            self.func_data.name
-        )?;
+        write!(f, "{}", self.0)
+    }
+}
 
+pub enum LiteralValue {
+    Integer(i64),
+    QuotedString(String),
+    Boolean(bool),
+}
+
+impl AstNode for LiteralValue {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        match self {
+            LiteralValue::Integer(val) => write!(f, "{}", val),
+            LiteralValue::QuotedString(val) => write!(f, "\"{}\"", val),
+            LiteralValue::Boolean(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+
+pub struct Attribute {
+    pub name: String,
+    pub positional_parameters: Vec<LiteralValue>,
+    pub named_parameters: Vec<(Ident, LiteralValue)>,
+}
+
+impl Attribute {
+    pub fn dll_import(binary: &str, entrypoint: &str) -> Self {
+        Self {
+            name: "DllImport".to_string(),
+            positional_parameters: vec![
+                LiteralValue::QuotedString(binary.to_string()),
+            ],
+            named_parameters: vec![
+                (Ident("EntryPoint".to_string()), LiteralValue::QuotedString(entrypoint.to_string()))
+            ],
+        }
+    }
+}
+
+
+impl AstNode for Attribute {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_indent(f, &ctx)?;
+        write!(f, "[{}", self.name)?;
 
-        write!(f, "public static extern ")?;
-        self.func_data.return_ty.render(f, ctx.clone())?;
-        write!(f, " {}(", self.csharp_name())?;
+        if self.positional_parameters.len() + self.named_parameters.len() == 0 {
+            write!(f, "]\n")?;
+            return Ok(())
+        } else {
+            write!(f, "(")?;
+        }
 
-        // TODO: Implement Iterator for MaybeOwnedArr
         let mut first = true;
-        for arg in &self.func_data.args[..] {
+        for param in &self.positional_parameters {
             if !first {
                 write!(f, ", ")?;
             }
-
-            arg.ty.render(f, ctx.clone())?;
-            write!(f, " {}", arg.name.to_mixed_case())?;
             first = false;
+
+            param.render(f, ctx.clone())?;
         }
 
-        write!(f, ");\n")?;
+        for (key, value) in &self.named_parameters {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+
+            key.render(f, ctx.clone())?;
+            write!(f, " = ")?;
+            value.render(f, ctx.clone())?;
+        }
+
+        write!(f, ")]\n")?;
+
+        Ok(())
+    }
+}
+
+pub struct MethodArgument {
+    pub name: Ident,
+    pub ty: CSharpType,
+}
+
+impl AstNode for MethodArgument {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        self.ty.render(f, ctx.clone())?;
+        write!(f, " ")?;
+        self.name.render(f, ctx.clone())?;
+
+        Ok(())
+    }
+}
+
+pub struct Method {
+    pub attributes: Vec<Attribute>,
+    pub is_public: bool,
+    pub is_static: bool,
+    pub is_extern: bool,
+    pub name: String,
+    pub return_ty: CSharpType,
+    pub args: Vec<MethodArgument>,
+    pub body: Option<Vec<Box<dyn AstNode>>>,
+}
+
+impl AstNode for Method {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        for attr in &self.attributes {
+            attr.render(f, ctx.clone())?;
+        }
+
+        render_indent(f, &ctx)?;
+        if self.is_public {
+            write!(f, "public ")?;
+        } else {
+            write!(f, "private ")?;
+        }
+
+        if self.is_static {
+            write!(f, "static ")?;
+        }
+
+        if self.is_extern {
+            write!(f, "extern ")?;
+        }
+
+        self.return_ty.render(f, ctx.clone())?;
+        write!(f, " {}(", self.name)?;
+
+        let mut first = true;
+        for arg in &self.args {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+
+            arg.render(f, ctx.clone())?;
+        }
+
+        let body = match &self.body {
+            Some(b) => b,
+            None => {
+                write!(f, ");\n")?;
+                return Ok(())
+            }
+        };
+
+        write!(f, ")\n")?;
+        render_ln!(f, &ctx, "{{")?;
+        for node in body {
+            node.render(f, ctx.indented())?;
+        }
+        render_ln!(f, &ctx, "}}")?;
 
         Ok(())
     }
@@ -219,7 +346,7 @@ impl AstNode for ImportedMethod {
 
 pub struct Class {
     pub name: String,
-    pub methods: Vec<ImportedMethod>,
+    pub methods: Vec<Method>,
     pub is_static: bool,
 }
 
@@ -229,7 +356,13 @@ impl AstNode for Class {
         render_ln!(f, &ctx, "public {}class {}", static_part, self.name)?;
         render_ln!(f, &ctx, "{{")?;
 
+        let mut first = true;
         for method in &self.methods {
+            if !first {
+                write!(f, "\n")?;
+            }
+            first = false;
+
             method.render(f, ctx.indented())?;
         }
 
