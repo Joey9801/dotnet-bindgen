@@ -1,61 +1,41 @@
 use std::fs::File;
 use std::io::Read;
 
-use goblin::elf::section_header::SectionHeader;
 use goblin::elf::Elf;
 use goblin::Object;
 
 use dotnet_bindgen_core::*;
 
 #[derive(Debug)]
-struct LoadedSection {
-    header: SectionHeader,
-    data: Vec<u8>,
-}
-
-impl LoadedSection {
-    fn new(elf: &Elf, buffer: &[u8], section_name: &str) -> Result<Self, ()> {
-        let header = match elf
-            .section_headers
-            .iter()
-            .filter(|hdr| match elf.shdr_strtab.get(hdr.sh_name) {
-                Some(Ok(name)) if name == section_name => true,
-                _ => false,
-            })
-            .next()
-        {
-            Some(header) => header.clone(),
-            None => return Err(()),
-        };
-
-        let data = match buffer.get(header.file_range()) {
-            Some(slice) => slice.to_vec(),
-            None => return Err(()),
-        };
-
-        Ok(Self { header, data })
-    }
-}
-
-#[derive(Debug)]
 pub struct BindgenData {
     pub source_file: std::path::PathBuf,
-
-    loaded_func: BindgenFunction,
+    pub descriptors: Vec<BindgenFunctionDescriptor>,
 }
 
 impl BindgenData {
-    fn load_elf(elf: &Elf, buffer: &[u8], source_file: std::path::PathBuf) -> Result<Self, ()> {
-        let data_section = LoadedSection::new(elf, buffer, BINDGEN_DATA_SECTION_NAME)?;
-        let metadata_string = std::str::from_utf8(&data_section.data)
-            .expect("Expected valid UTF-8 data in bindgen data section");
+    fn load_elf(elf: &Elf, source_file: std::path::PathBuf) -> Result<Self, ()> {
+        let mut descriptors = Vec::new();
+        let lib = libloading::Library::new(&source_file).unwrap();
+        for sym in elf.dynsyms.iter() {
+            let name = match elf.dynstrtab.get(sym.st_name) {
+                Some(Ok(s)) => s,
+                _ => continue,
+            };
 
-        let loaded_func = serde_json::from_str(metadata_string)
-            .expect("Expected valid json data in bindgen data section");
+            if !name.starts_with(BINDGEN_DESCRIBE_PREFIX) {
+                continue;
+            }
+
+            unsafe {
+                let descriptor_func: libloading::Symbol<unsafe fn() -> BindgenFunctionDescriptor> =
+                    lib.get(name.as_bytes()).unwrap();
+                descriptors.push(descriptor_func());
+            }
+        }
 
         Ok(Self {
             source_file,
-            loaded_func,
+            descriptors,
         })
     }
 
@@ -66,7 +46,7 @@ impl BindgenData {
         fd.read_to_end(&mut buffer).unwrap();
 
         let data = match Object::parse(&buffer).unwrap() {
-            Object::Elf(elf) => Self::load_elf(&elf, &buffer, file).expect("Failed to load elf"),
+            Object::Elf(elf) => Self::load_elf(&elf, file).expect("Failed to load elf"),
             Object::Unknown(magic) => {
                 println!("unknown magic: {:#x}", magic);
                 return Err(());
@@ -78,9 +58,5 @@ impl BindgenData {
         };
 
         Ok(data)
-    }
-
-    pub fn get_function(&self) -> &BindgenFunction {
-        &self.loaded_func
     }
 }
