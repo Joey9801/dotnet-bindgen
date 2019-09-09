@@ -125,11 +125,35 @@ pub fn create_project(data: crate::data::BindgenData, project_dir: PathBuf) -> R
         ],
         children: vec![Box::new(ast::Namespace {
             name: "Test.Namespace".into(),
-            children: vec![Box::new(ast::Class {
-                name: "Imports".into(),
-                is_static: true,
-                methods
-            })],
+            children: vec![
+                Box::new(ast::Object {
+                    attributes: vec![
+                        ast::Attribute::struct_layout("Sequential"),
+                    ],
+                    object_type: ast::ObjectType::Struct,
+                    is_static: false,
+                    name: "SliceAbi".into(),
+                    methods: Vec::new(),
+                    fields: vec![
+                        ast::Field {
+                            name: "Ptr".to_string(),
+                            ty: ast::CSharpType::Struct { name: ast::Ident::new("IntPtr"), }
+                        },
+                        ast::Field {
+                            name: "Len".to_string(),
+                            ty: ast::CSharpType::UInt64,
+                        },
+                    ]
+                }),
+                Box::new(ast::Object {
+                    attributes: Vec::new(),
+                    object_type: ast::ObjectType::Class,
+                    is_static: true,
+                    name: "Imports".into(),
+                    methods,
+                    fields: Vec::new(),
+                }),
+            ],
         })],
     };
 

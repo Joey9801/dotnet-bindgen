@@ -123,7 +123,13 @@ impl AstNode for Namespace {
         render_ln!(f, &ctx, "namespace {}", self.name)?;
         render_ln!(f, &ctx, "{{")?;
 
+        let mut first = true;
         for child in &self.children {
+            if !first {
+                write!(f, "\n")?;
+            }
+            first = false;
+
             child.render(f, ctx.indented())?;
         }
 
@@ -182,6 +188,12 @@ impl AstNode for CSharpType {
 
 pub struct Ident(pub String);
 
+impl Ident {
+    pub fn new(s: &str) -> Self {
+        Self (s.to_string())
+    }
+}
+
 impl AstNode for Ident {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         write!(f, "{}", self.0)
@@ -192,6 +204,7 @@ pub enum LiteralValue {
     Integer(i64),
     QuotedString(String),
     Boolean(bool),
+    EnumValue(String, String),
 }
 
 impl AstNode for LiteralValue {
@@ -200,6 +213,7 @@ impl AstNode for LiteralValue {
             LiteralValue::Integer(val) => write!(f, "{}", val),
             LiteralValue::QuotedString(val) => write!(f, "\"{}\"", val),
             LiteralValue::Boolean(val) => write!(f, "{}", val),
+            LiteralValue::EnumValue(e, v) => write!(f, "{}.{}", e, v),
         }
     }
 }
@@ -221,6 +235,16 @@ impl Attribute {
             named_parameters: vec![
                 (Ident("EntryPoint".to_string()), LiteralValue::QuotedString(entrypoint.to_string()))
             ],
+        }
+    }
+
+    pub fn struct_layout(layout_kind: &str) -> Self {
+        Self {
+            name: "StructLayout".to_string(),
+            positional_parameters: vec![
+                LiteralValue::EnumValue("LayoutKind".to_string(), layout_kind.to_string()),
+            ],
+            named_parameters: Vec::new(),
         }
     }
 }
@@ -344,19 +368,56 @@ impl AstNode for Method {
     }
 }
 
-pub struct Class {
+pub struct Field {
     pub name: String,
-    pub methods: Vec<Method>,
-    pub is_static: bool,
+    pub ty: CSharpType,
 }
 
-impl AstNode for Class {
+impl AstNode for Field {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_indent(f, &ctx)?;
+        write!(f, "public ")?;
+        self.ty.render(f, ctx)?;
+        write!(f, " {};\n", self.name)
+    }
+}
+
+pub enum ObjectType {
+    Class,
+    Struct,
+}
+
+pub struct Object {
+    pub attributes: Vec<Attribute>,
+    pub object_type: ObjectType,
+    pub is_static: bool,
+    pub name: String,
+    pub methods: Vec<Method>,
+    pub fields: Vec<Field>,
+}
+
+impl AstNode for Object {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        for attr in &self.attributes {
+            attr.render(f, ctx)?;
+        }
+
         let static_part = if self.is_static { "static " } else { "" };
-        render_ln!(f, &ctx, "public {}class {}", static_part, self.name)?;
+        let object_type = match self.object_type {
+            ObjectType::Class => "class ",
+            ObjectType::Struct => "struct ",
+        };
+
+        render_ln!(f, &ctx, "public {}{}{}", static_part, object_type, self.name)?;
         render_ln!(f, &ctx, "{{")?;
 
         let mut first = true;
+
+        for field in &self.fields {
+            first = false;
+            field.render(f, ctx.indented())?;
+        }
+
         for method in &self.methods {
             if !first {
                 write!(f, "\n")?;
