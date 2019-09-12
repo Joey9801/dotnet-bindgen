@@ -70,7 +70,7 @@ impl<T: FfiStable> BindgenAbiConvert for &[T] {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindgenTypeDescriptor {
     Void,
     Int {
@@ -83,14 +83,14 @@ pub enum BindgenTypeDescriptor {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindgenFunctionArgumentDescriptor {
     pub name: String,
     pub ty: BindgenTypeDescriptor,
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindgenFunctionDescriptor {
     pub real_name: String,
     pub thunk_name: String,
