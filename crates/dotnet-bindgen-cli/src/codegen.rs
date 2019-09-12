@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use heck::CamelCase;
+use heck::{CamelCase, MixedCase};
 
 use dotnet_bindgen_core as core;
 use crate::ast;
@@ -34,6 +34,7 @@ fn create_csproj(data: &BindgenData, project_dir: &Path) -> Result<(), std::io::
     let contents = r#"<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 </Project>
 "#;
@@ -44,7 +45,7 @@ fn create_csproj(data: &BindgenData, project_dir: &Path) -> Result<(), std::io::
     Ok(())
 }
 
-/// Maps a BindgenTypeDescriptor to 
+/// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
 fn map_descriptor_to_thunk_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
     use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
     use ast::CSharpType as CS;
@@ -71,7 +72,7 @@ pub fn func_descriptor_to_imported_method(
     let attributes = vec![
         ast::Attribute::dll_import(binary_name, &descriptor.thunk_name)
     ];
-    let name = descriptor.thunk_name.to_camel_case();
+    let name = descriptor.thunk_name.to_string();
     let return_ty = map_descriptor_to_thunk_type(&descriptor.return_ty);
     let args = descriptor.arguments
         .iter()
@@ -85,10 +86,102 @@ pub fn func_descriptor_to_imported_method(
         is_public: false,
         is_static: true,
         is_extern: true,
+        is_unsafe: false,
         name,
         return_ty,
         args,
         body: None,
+    }
+}
+
+/// Maps a BindgenTypeDescriptor to the type it should appear as in the generated C# wrapper
+fn map_descriptor_to_idiomatic_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
+    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
+    use ast::CSharpType as CS;
+    match descriptor {
+        Desc::Slice { elem_type: slice_elem_type } =>
+            CS::Array { elem_type: Box::new(map_descriptor_to_idiomatic_type(&slice_elem_type)) },
+        other => map_descriptor_to_thunk_type(other),
+    }
+}
+
+pub fn func_descriptor_to_idiomatic_wrapper(
+    descriptor: &core::BindgenFunctionDescriptor
+) -> ast::Method {
+    let name = descriptor.real_name.to_camel_case();
+    let return_ty = map_descriptor_to_idiomatic_type(&descriptor.return_ty);
+    let args = descriptor.arguments
+        .iter()
+        .map(|arg| ast::MethodArgument {
+            name: ast::Ident(arg.name.to_mixed_case()),
+            ty: map_descriptor_to_idiomatic_type(&arg.ty)
+        }).collect();
+
+    let mut body = Vec::<Box<dyn ast::AstNode>>::new();
+
+    let mut transformed_args = Vec::new();
+    for arg in &descriptor.arguments {
+        match &arg.ty {
+            core::BindgenTypeDescriptor::Slice { elem_type } => {
+                let elem_type = map_descriptor_to_thunk_type(&elem_type);
+
+                let raw_name = arg.name.to_mixed_case();
+                let transformed_name = format!("{}_transformed", raw_name);
+                transformed_args.push(ast::Ident::new(&transformed_name));
+
+                body.push(Box::new(ast::Statement {
+                    expr: format!("SliceAbi {}", transformed_name)
+                }));
+
+                body.push(Box::new(ast::FixedAssignment {
+                    assignment_expr: format!("{}* p = &{}[0]", elem_type, raw_name),
+                    children: vec![
+                        Box::new(ast::BlockComment {
+                            text: vec![
+                                "This is a bug, the rest of this method should be in this fixed block.".to_string(),
+                                "Without this, the GC could move the array while Rust has a pointer to it.".to_string(),
+                            ]
+                        }),
+                        Box::new(ast::Statement {
+                            expr: format!("{}.Ptr = (IntPtr) p", transformed_name)
+                        })
+                    ],
+                }));
+
+                body.push(Box::new(ast::Statement {
+                    expr: format!("{}.Len = (UInt64) {}.Length", transformed_name, raw_name)
+                }));
+            },
+
+            // If not a slice, no transform needed
+            _ => transformed_args.push(ast::Ident(arg.name.to_mixed_case())),
+        }
+    }
+
+    let final_invocation = ast::MethodInvocation {
+        target: None,
+        method_name: ast::Ident::new(&descriptor.thunk_name),
+        args: transformed_args,
+    };
+
+    if descriptor.return_ty == core::BindgenTypeDescriptor::Void {
+        body.push(Box::new(final_invocation));
+    } else {
+        body.push(Box::new(ast::ReturnStatement {
+            value: Some(Box::new(final_invocation)),
+        }));
+    }
+
+    ast::Method {
+        attributes: Vec::new(),
+        is_public: true,
+        is_static: true,
+        is_extern: false,
+        is_unsafe: true,
+        name,
+        return_ty,
+        args,
+        body: Some(body),
     }
 }
 
@@ -107,6 +200,10 @@ pub fn create_project(data: crate::data::BindgenData, project_dir: PathBuf) -> R
     for descriptor in data.descriptors {
         methods.push(
             func_descriptor_to_imported_method(binary_name, &descriptor)
+        );
+
+        methods.push(
+            func_descriptor_to_idiomatic_wrapper(&descriptor)
         );
     }
 

@@ -1,9 +1,13 @@
 use dotnet_bindgen::dotnet_bindgen;
 
-#[no_mangle]
 #[dotnet_bindgen]
-pub extern "C" fn demo_function(first_arg: i8, second_arg: u64) -> i32 {
-    println!("Hello from the demo function: arg1 = {}", first_arg);
+fn demo_function(first_arg: &[i32], second_arg: u64) -> u16 {
+    dbg!(first_arg);
+    dbg!(second_arg);
+    first_arg.len() as u16 + second_arg as u16
+}
 
-    second_arg as i32 + 10
+#[dotnet_bindgen]
+fn another_func(a: u8, b: u16) -> i8 {
+    10
 }
