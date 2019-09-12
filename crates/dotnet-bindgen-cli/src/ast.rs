@@ -1,4 +1,6 @@
 use std::io;
+use std::string::ToString;
+use std::fmt;
 
 static INDENT_TOK: &'static str = "    ";
 
@@ -43,6 +45,13 @@ impl RenderContext {
 
 pub trait AstNode {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error>;
+}
+
+impl<T: fmt::Display> AstNode for T {
+    fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
+        write!(f, "{}", self)
+    }
+
 }
 
 pub struct Root {
@@ -161,8 +170,9 @@ pub enum CSharpType {
     Struct { name: Ident }
 }
 
-impl AstNode for CSharpType {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+
+impl fmt::Display for CSharpType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CSharpType::Void   => write!(f, "void"),
             CSharpType::SByte  => write!(f, "SByte"),
@@ -173,15 +183,9 @@ impl AstNode for CSharpType {
             CSharpType::UInt16 => write!(f, "UInt16"),
             CSharpType::UInt32 => write!(f, "UInt32"),
             CSharpType::UInt64 => write!(f, "UInt64"),
-            CSharpType::Array { elem_type } => {
-                elem_type.render(f, ctx)?;
-                write!(f, "[]")
-            },
-            CSharpType::Ptr { target } => {
-                target.render(f, ctx)?;
-                write!(f, "*")
-            },
-            CSharpType::Struct { name } => name.render(f, ctx)
+            CSharpType::Array { elem_type } => write!(f, "{}[]", elem_type),
+            CSharpType::Ptr { target } => write!(f, "{}*", target),
+            CSharpType::Struct { name } => write!(f, "{}", name),
         }
     }
 }
@@ -194,8 +198,8 @@ impl Ident {
     }
 }
 
-impl AstNode for Ident {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -207,8 +211,8 @@ pub enum LiteralValue {
     EnumValue(String, String),
 }
 
-impl AstNode for LiteralValue {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+impl fmt::Display for LiteralValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LiteralValue::Integer(val) => write!(f, "{}", val),
             LiteralValue::QuotedString(val) => write!(f, "\"{}\"", val),
@@ -269,7 +273,7 @@ impl AstNode for Attribute {
             }
             first = false;
 
-            param.render(f, ctx)?;
+            write!(f, "{}", param)?;
         }
 
         for (key, value) in &self.named_parameters {
@@ -278,14 +282,85 @@ impl AstNode for Attribute {
             }
             first = false;
 
-            key.render(f, ctx)?;
-            write!(f, " = ")?;
-            value.render(f, ctx)?;
+            write!(f, "{} = {}", key, value)?;
         }
 
         write!(f, ")]\n")?;
 
         Ok(())
+    }
+}
+
+pub struct Statement {
+    pub expr: String,
+}
+
+impl AstNode for Statement {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_ln!(f, &ctx, "{};", self.expr)
+    }
+}
+
+pub struct FixedAssignment {
+    pub assignment_expr: String,
+    pub children: Vec<Box<dyn AstNode>>,
+}
+
+impl AstNode for FixedAssignment {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_ln!(f, &ctx, "fixed ({})", self.assignment_expr)?;
+        render_ln!(f, &ctx, "{{")?;
+
+        for node in &self.children {
+            node.render(f, ctx.indented())?;
+        }
+
+        render_ln!(f, &ctx, "}}")
+    }
+}
+
+pub struct MethodInvocation {
+    pub target: Option<Ident>,
+    pub method_name: Ident,
+    pub args: Vec<Ident>,
+}
+
+impl fmt::Display for MethodInvocation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(t) = &self.target {
+            write!(f, "{}.", t)?;
+        }
+
+        write!(f, "{}(", self.method_name)?;
+
+        let mut first = true;
+        for arg in &self.args {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+
+            write!(f, "{}", arg)?;
+        }
+        write!(f, ")")
+    }
+}
+
+pub struct ReturnStatement {
+    pub value: Option<Box<dyn AstNode>>,
+}
+
+impl AstNode for ReturnStatement {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        match &self.value {
+            Some(v) => {
+                render_indent(f, &ctx)?;
+                write!(f, "return ")?;
+                v.render(f, ctx)?;
+                write!(f, ";\n")
+            },
+            None => render_ln!(f, &ctx, "return;"),
+        }
     }
 }
 
@@ -296,11 +371,7 @@ pub struct MethodArgument {
 
 impl AstNode for MethodArgument {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        self.ty.render(f, ctx)?;
-        write!(f, " ")?;
-        self.name.render(f, ctx)?;
-
-        Ok(())
+        write!(f, "{} {}", self.ty, self.name)
     }
 }
 
@@ -309,6 +380,7 @@ pub struct Method {
     pub is_public: bool,
     pub is_static: bool,
     pub is_extern: bool,
+    pub is_unsafe: bool,
     pub name: String,
     pub return_ty: CSharpType,
     pub args: Vec<MethodArgument>,
@@ -336,8 +408,11 @@ impl AstNode for Method {
             write!(f, "extern ")?;
         }
 
-        self.return_ty.render(f, ctx)?;
-        write!(f, " {}(", self.name)?;
+        if self.is_unsafe {
+            write!(f, "unsafe ")?;
+        }
+
+        write!(f, "{} {}(", self.return_ty, self.name)?;
 
         let mut first = true;
         for arg in &self.args {
@@ -375,10 +450,7 @@ pub struct Field {
 
 impl AstNode for Field {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_indent(f, &ctx)?;
-        write!(f, "public ")?;
-        self.ty.render(f, ctx)?;
-        write!(f, " {};\n", self.name)
+        render_ln!(f, &ctx, "public {} {};", self.ty, self.name)
     }
 }
 
