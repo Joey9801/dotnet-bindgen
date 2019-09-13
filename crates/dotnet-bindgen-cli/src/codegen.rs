@@ -1,5 +1,5 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::convert::TryFrom;
+use std::path::PathBuf;
 
 use heck::{CamelCase, MixedCase};
 
@@ -7,42 +7,97 @@ use dotnet_bindgen_core as core;
 use crate::ast;
 use crate::data::BindgenData;
 
-fn create_csproj(data: &BindgenData, project_dir: &Path) -> Result<(), std::io::Error> {
-    // Generate the proj filename
-    // ./foo/bar/libtest_lib.so -> TestLibBindings.csproj
+/// A simple binding type requires no conversion to cross the FFI boundary
+#[derive(Clone, Debug)]
+struct SimpleBindingType {
+    /// The original type descriptor extracted from the binary
+    descriptor: core::BindgenTypeDescriptor,
 
-    let source_ext = data.source_file.extension().and_then(|e| e.to_str());
+    /// The single C# type that is both idiomatic, and suitable for the extern method.
+    cs: ast::CSharpType,
+}
 
-    let source_stem = data
-        .source_file
-        .file_stem()
-        .expect("Source file path doesn't have a filename")
-        .to_str()
-        .expect("Source filename isn't valid unicode");
+/// A Complex BindingType is one that requires some manual marshalling.
+#[derive(Clone, Debug)]
+struct ComplexBindingType {
+    /// The original type descriptor extracted from the binary
+    descriptor: core::BindgenTypeDescriptor,
 
-    // Silly .so file naming convention has an extra "lib" prefix on the filename
-    // Strip it off if in that case
-    let base_name = if source_stem.starts_with("lib") && source_ext == Some("so") {
-        source_stem.chars().skip(3).collect::<String>()
-    } else {
-        source_stem.into()
+    /// The type as it appears in the generated Rust thunk
+    thunk_type: ast::CSharpType,
+
+    /// The type as it appears in the idiomatic C# wrapper
+    idiomatic_type: ast::CSharpType,
+}
+
+/// Represents a type being passed between Rust/dotnet
+#[derive(Clone, Debug)]
+enum BindingType {
+    Simple(SimpleBindingType),
+    Complex(ComplexBindingType),
+}
+
+impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
+    type Error = &'static str;
+
+    fn try_from(descriptor: core::BindgenTypeDescriptor) -> Result<Self, Self::Error> {
+        use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
+        use ast::CSharpType as CS;
+
+        let converted = match &descriptor {
+            Desc::Void => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::Void,
+            }),
+            Desc::Int { width: 8, signed: true } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::SByte,
+            }),
+            Desc::Int { width: 16, signed: true } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::Int16,
+            }),
+            Desc::Int { width: 32, signed: true } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::Int32,
+            }),
+            Desc::Int { width: 64, signed: true } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::Int64,
+            }),
+            Desc::Int { width: 8, signed: false } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::Byte,
+            }),
+            Desc::Int { width: 16, signed: false } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::UInt16,
+            }),
+            Desc::Int { width: 32, signed: false } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::UInt32,
+            }),
+            Desc::Int { width: 64, signed: false } => BindingType::Simple(SimpleBindingType {
+                descriptor,
+                cs: CS::UInt64,
+            }),
+            Desc::Slice { elem_type } => {
+                let elem_type = match BindingType::try_from(*elem_type.clone())? {
+                    BindingType::Simple(s) => s.cs,
+                    BindingType::Complex(_) => return Err("Can't generate code for slices of non-trivial types yet"),
+                };
+
+                BindingType::Complex(ComplexBindingType {
+                    descriptor,
+                    thunk_type: CS::Struct { name: ast::Ident::new("SliceAbi") },
+                    idiomatic_type: CS::Array { elem_type: Box::new(elem_type) }
+                })
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(converted)
     }
-    .to_camel_case();
-
-    let csproj_filename = project_dir.join(format!("{}Bindings.csproj", base_name));
-
-    let contents = r#"<Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
-        <TargetFramework>netstandard2.0</TargetFramework>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    </PropertyGroup>
-</Project>
-"#;
-
-    std::fs::create_dir_all(project_dir)?;
-    std::fs::write(csproj_filename, contents)?;
-
-    Ok(())
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
@@ -185,83 +240,135 @@ pub fn func_descriptor_to_idiomatic_wrapper(
     }
 }
 
-pub fn create_project(data: crate::data::BindgenData, project_dir: PathBuf) -> Result<(), ()> {
-    create_csproj(&data, &project_dir).unwrap();
+struct CodegenInfo {
+    /// Raw descriptor data extracted from the binary
+    data: BindgenData,
 
-    let binary_name = data
-        .source_file
-        .file_name()
-        .expect("Expect a filename in the path".into())
-        .to_str()
-        .expect("Expec the filename to be valid unicode");
+    /// The parsed name of the library. Eg "libbindings_demo.so" -> "bindings_demo".
+    ///
+    /// It should be sufficient to use this string as the first argument to a DllImportAttribute.
+    lib_name: String,
 
-    let mut methods = Vec::new();
+    /// The root directory for the outputted project / artifacts
+    output_base: PathBuf,
+}
 
-    for descriptor in data.descriptors {
-        methods.push(
-            func_descriptor_to_imported_method(binary_name, &descriptor)
-        );
+impl CodegenInfo {
+    fn new(data: BindgenData, output_base: PathBuf) -> Self {
+        let source_ext = data.source_file.extension().and_then(|e| e.to_str());
+        let source_stem = data
+            .source_file
+            .file_stem()
+            .expect("Expect a filename in the path".into())
+            .to_str()
+            .expect("Expec the filename to be valid unicode");
 
-        methods.push(
-            func_descriptor_to_idiomatic_wrapper(&descriptor)
-        );
+        let lib_name = if source_stem.starts_with("lib") && source_ext == Some("so") {
+            source_stem.chars().skip(3).collect::<String>()
+        } else {
+            source_stem.into()
+        };
+
+        Self {
+            data,
+            lib_name,
+            output_base,
+        }
     }
 
-    // For the first pass, stick everything in one file
-    let root = ast::Root {
-        file_comment: Some(ast::BlockComment {
-            text: vec!["This is a generated file, do not modify by hand.".into()],
-        }),
-        using_statements: vec![
-            ast::UsingStatement {
-                path: "System".into(),
-            },
-            ast::UsingStatement {
-                path: "System.Runtime.InteropServices".into(),
-            },
-        ],
-        children: vec![Box::new(ast::Namespace {
-            name: "Test.Namespace".into(),
-            children: vec![
-                Box::new(ast::Object {
-                    attributes: vec![
-                        ast::Attribute::struct_layout("Sequential"),
-                    ],
-                    object_type: ast::ObjectType::Struct,
-                    is_static: false,
-                    name: "SliceAbi".into(),
-                    methods: Vec::new(),
-                    fields: vec![
-                        ast::Field {
-                            name: "Ptr".to_string(),
-                            ty: ast::CSharpType::Struct { name: ast::Ident::new("IntPtr"), }
-                        },
-                        ast::Field {
-                            name: "Len".to_string(),
-                            ty: ast::CSharpType::UInt64,
-                        },
-                    ]
-                }),
-                Box::new(ast::Object {
-                    attributes: Vec::new(),
-                    object_type: ast::ObjectType::Class,
-                    is_static: true,
-                    name: "Imports".into(),
-                    methods,
-                    fields: Vec::new(),
-                }),
+    fn write_all(&self) -> Result<(), std::io::Error> {
+        std::fs::create_dir_all(&self.output_base)?;
+        // TODO: clean the directory?
+
+        self.write_proj_file()?;
+
+        let bindings_filepath = self.output_base.join("Bindings.cs");
+        let mut file = std::fs::File::create(&bindings_filepath).expect(&format!(
+            "Can't open {} for writing",
+            bindings_filepath.to_str().unwrap()
+        ));
+        let ast = self.form_ast();
+        ast.render(&mut file).unwrap();
+
+        Ok(())
+    }
+
+    fn write_proj_file(&self) -> Result<(), std::io::Error> {
+        let csproj_filename = format!("{}Bindings.csproj", self.lib_name.to_camel_case());
+        let contents = r#"<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+</Project>
+"#;
+        std::fs::write(self.output_base.join(csproj_filename), contents)?;
+
+        Ok(())
+    }
+
+    fn form_ast(&self) -> ast::Root {
+        let mut methods = Vec::new();
+
+        for descriptor in &self.data.descriptors {
+            methods.push(
+                func_descriptor_to_imported_method(&self.lib_name, &descriptor)
+            );
+            methods.push(
+                func_descriptor_to_idiomatic_wrapper(&descriptor)
+            );
+        }
+
+        ast::Root {
+            file_comment: Some(ast::BlockComment {
+                text: vec!["This is a generated file, do not modify by hand.".into()],
+            }),
+            using_statements: vec![
+                ast::UsingStatement {
+                    path: "System".into(),
+                },
+                ast::UsingStatement {
+                    path: "System.Runtime.InteropServices".into(),
+                },
             ],
-        })],
-    };
+            children: vec![Box::new(ast::Namespace {
+                name: "Test.Namespace".into(),
+                children: vec![
+                    Box::new(ast::Object {
+                        attributes: vec![
+                            ast::Attribute::struct_layout("Sequential"),
+                        ],
+                        object_type: ast::ObjectType::Struct,
+                        is_static: false,
+                        name: "SliceAbi".into(),
+                        methods: Vec::new(),
+                        fields: vec![
+                            ast::Field {
+                                name: "Ptr".to_string(),
+                                ty: ast::CSharpType::Struct { name: ast::Ident::new("IntPtr"), }
+                            },
+                            ast::Field {
+                                name: "Len".to_string(),
+                                ty: ast::CSharpType::UInt64,
+                            },
+                        ]
+                    }),
+                    Box::new(ast::Object {
+                        attributes: Vec::new(),
+                        object_type: ast::ObjectType::Class,
+                        is_static: true,
+                        name: "Imports".into(),
+                        methods,
+                        fields: Vec::new(),
+                    }),
+                ],
+            })],
+        }
+    }
+}
 
-    fs::create_dir_all(&project_dir).unwrap();
-
-    let file_path = project_dir.join("Bindings.cs");
-    let mut file = std::fs::File::create(&file_path).expect(&format!(
-        "Can't open {} for writing",
-        file_path.to_str().unwrap()
-    ));
-    root.render(&mut file).unwrap();
-
+pub fn create_project(data: crate::data::BindgenData, project_dir: PathBuf) -> Result<(), ()> {
+    let info = CodegenInfo::new(data, project_dir);
+    info.write_all().unwrap();
     Ok(())
 }

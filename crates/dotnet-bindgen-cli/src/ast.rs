@@ -148,6 +148,7 @@ impl AstNode for Namespace {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum CSharpType {
     Void,
 
@@ -190,6 +191,7 @@ impl fmt::Display for CSharpType {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Ident(pub String);
 
 impl Ident {
