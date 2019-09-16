@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
 
 use heck::{CamelCase, MixedCase};
@@ -98,6 +98,176 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
 
         Ok(converted)
     }
+}
+
+#[derive(Clone, Debug)]
+struct BindingMethodArgument {
+    ty: BindingType,
+    rust_name: String,
+    cs_name: String,
+}
+
+impl TryFrom<core::BindgenFunctionArgumentDescriptor> for BindingMethodArgument {
+    type Error = &'static str;
+
+    fn try_from(descriptor: core::BindgenFunctionArgumentDescriptor) -> Result<Self, Self::Error> {
+        let ty = descriptor.ty.try_into()?;
+        let rust_name = descriptor.name.to_string();
+        let cs_name = descriptor.name.to_mixed_case();
+        Ok(Self {
+            ty,
+            rust_name,
+            cs_name,
+        })
+    }
+}
+
+/// Abstract identifier for a variable, eventually resolved to a concrete ast::Ident.
+#[derive(Clone, Debug)]
+enum AbstractIdent {
+    Exlicit(String),
+    Generated(u32),
+}
+
+impl AbstractIdent {
+    fn generated_id(&self) -> Option<u32> {
+        match self {
+            AbstractIdent::Exlicit(_) => None,
+            AbstractIdent::Generated(x) => Some(*x),
+        }
+    }
+
+    fn increment_id(&mut self, offset: u32) {
+        match self {
+            AbstractIdent::Exlicit(_) => (),
+            AbstractIdent::Generated(x) => *x += offset,
+        };
+    }
+}
+
+/// An abstract part of a method body, roughly mapping 1-1 with an ast element.
+#[derive(Clone, Debug)]
+enum BodyElement {
+    /// Declares a new local variable of the given type.
+    DeclareLocal {
+        id: AbstractIdent,
+        ty: ast::CSharpType,
+    },
+    /// Just calls a method.
+    MethodCall {
+        method_name: String,
+        args: Vec<AbstractIdent>
+    },
+    /// A field/property of a variable, eg `foo.Length`.
+    FieldAccess {
+        element: Box<BodyElement>,
+        field_name: String,
+    },
+    /// The given ident indexed at element <element>
+    VarIndex {
+        id: AbstractIdent,
+        index: i64,
+    },
+    /// Takes the address of the given element
+    AddressOf {
+        element: Box<BodyElement>,
+    },
+    Assignment {
+        lhs: Box<BodyElement>,
+        rhs: Box<BodyElement>,
+    },
+    /// Generates a fixed assignment, with subsequent operations inside its scope
+    FixedAssignment {
+        ty: ast::CSharpType,
+        id: AbstractIdent,
+        rhs: Box<BodyElement>
+    }
+}
+
+impl BodyElement {
+    /// What is the maximum abstract identifier id in this element, if any are present.
+    fn max_abstract_id(&self) -> Option<u32> {
+        match self {
+            BodyElement::DeclareLocal { id, ty: _ } => id.generated_id(),
+            BodyElement::MethodCall { method_name: _, args } =>
+                args.iter()
+                    .filter_map(|a| a.generated_id())
+                    .max(),
+            BodyElement::FieldAccess { element, field_name: _ } => element.max_abstract_id(),
+            BodyElement::VarIndex { id, index: _ } => id.generated_id(),
+            BodyElement::AddressOf { element } => element.max_abstract_id(),
+            BodyElement::Assignment { lhs, rhs } =>
+                [lhs, rhs].iter()
+                    .filter_map(|a| a.max_abstract_id())
+                    .max(),
+            BodyElement::FixedAssignment { ty, id, rhs } =>
+                [id.generated_id(), rhs.max_abstract_id()].iter()
+                    .filter(|a| a.is_some())
+                    .map(|a| a.unwrap())
+                    .max(),
+        }
+    }
+
+    fn increment_abstract_ids(&mut self, offset: u32) {
+        match self {
+            BodyElement::DeclareLocal { id, ty: _ } => id.increment_id(offset),
+            BodyElement::MethodCall { method_name: _, args } => {
+                for arg in args.iter_mut() {
+                    arg.increment_id(offset);
+                }
+            },
+            BodyElement::FieldAccess { element, field_name: _ } => element.increment_abstract_ids(offset),
+            BodyElement::VarIndex { id, index: _ } => id.increment_id(offset),
+            BodyElement::AddressOf { element } => element.increment_abstract_ids(offset),
+            BodyElement::Assignment { lhs, rhs } => {
+                lhs.increment_abstract_ids(offset);
+                rhs.increment_abstract_ids(offset);
+            },
+            BodyElement::FixedAssignment { ty: _, id, rhs } => {
+                id.increment_id(offset);
+                rhs.increment_abstract_ids(offset);
+            }
+        }
+    }
+}
+
+struct BindingMethodBodyFragment {
+    elements: Vec<BodyElement>,
+}
+
+impl BindingMethodBodyFragment {
+    fn max_abstract_id(&self) -> Option<u32> {
+        self.elements.iter()
+            .filter_map(|e| e.max_abstract_id())
+            .max()
+    }
+
+    /// Assumes two fragments are entirely separate, and munges the abstract idents in each to ensure no collisions
+    fn merge(a: Self, b: Self) -> Self {
+        let mut a = a.elements;
+        let mut b = b.elements;
+
+        let max_a = a.iter().filter_map(|el| el.max_abstract_id()).max();
+        if let Some(offset) = max_a {
+            for el in b.iter_mut() {
+                el.increment_abstract_ids(offset);
+            }
+        }
+
+        a.extend_from_slice(&b);
+        let merged = a;
+
+        BindingMethodBodyFragment { elements: merged }
+    }
+}
+
+struct BindingMethodBody {
+    steps: Vec<BodyElement>,
+}
+
+struct BindingMethod {
+    args: Vec<BindingMethodArgument>,
+    body: BindingMethodBody,
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
@@ -295,13 +465,18 @@ impl CodegenInfo {
 
     fn write_proj_file(&self) -> Result<(), std::io::Error> {
         let csproj_filename = format!("{}Bindings.csproj", self.lib_name.to_camel_case());
-        let contents = r#"<Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
-        <TargetFramework>netstandard2.0</TargetFramework>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    </PropertyGroup>
-</Project>
-"#;
+
+        // This definition leaves a load of extraneous whitespace in the generated csproj file.
+        // I don't care, the code here will be read much more often than the generated file.
+        let contents = r#"
+            <Project Sdk="Microsoft.NET.Sdk">
+                <PropertyGroup>
+                    <TargetFramework>netstandard2.0</TargetFramework>
+                    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+                </PropertyGroup>
+            </Project>
+        "#;
+
         std::fs::write(self.output_base.join(csproj_filename), contents)?;
 
         Ok(())
