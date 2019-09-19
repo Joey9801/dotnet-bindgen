@@ -122,24 +122,112 @@ impl TryFrom<core::BindgenFunctionArgumentDescriptor> for BindingMethodArgument 
     }
 }
 
+impl BindingMethodArgument {
+    fn transform_body_fragment(&self) -> ArgTransformBodyFragment {
+        let (elements, output_ident) = match &self.ty {
+            BindingType::Simple(_) => (Vec::new(), AbstractIdent::Explicit(self.cs_name.to_string())),
+            BindingType::Complex(complex_ty) => {
+                let elements = match &complex_ty.descriptor {
+                    core::BindgenTypeDescriptor::Slice { elem_type: _ } => {
+                        let elem_type = match &complex_ty.idiomatic_type {
+                            ast::CSharpType::Array { elem_type } => elem_type.clone(),
+                            _ => unreachable!(),
+                        };
+
+                        let source_ident = Box::new(BodyElement::Ident(
+                            AbstractIdent::Explicit(self.cs_name.to_string())
+                        ));
+
+                        // TODO: The following is horrendous - replacing with a builer might help.
+                        // Eg, something like:
+                        //     let elements = ArgTransformFragmentBuilder::new()
+                        //        .declare_struct(0.into(), "SliceAbi")
+                        //        .assign_field_to_field(0.into(), "Len", self.cs_name.into(), "Length")
+                        //        .fixed_assign_arr_ptr(1.into(), self.cs_name)
+                        //        .build();
+
+                        vec! [
+                            BodyElement::DeclareLocal {
+                                id: AbstractIdent::Generated(0),
+                                ty: ast::CSharpType::Struct { name: "SliceAbi".into() }
+                            },
+                            BodyElement::Assignment {
+                                lhs: Box::new(BodyElement::FieldAccess {
+                                    element: Box::new(BodyElement::Ident(0.into())),
+                                    field_name: "Len".to_string(),
+                                }),
+                                rhs: Box::new(BodyElement::FieldAccess {
+                                    element: source_ident.clone(),
+                                    field_name: "Length".to_string(),
+                                }),
+                            },
+                            BodyElement::FixedAssignment {
+                                ty: ast::CSharpType::Ptr {
+                                    target: Box::new((*elem_type.clone()).into())
+                                },
+                                id: AbstractIdent::Generated(1),
+                                rhs: Box::new(BodyElement::AddressOf {
+                                    element: Box::new(BodyElement::IndexAccess {
+                                        element: source_ident.clone(),
+                                        index: 0,
+                                    }),
+                                })
+                            },
+                            BodyElement::Assignment {
+                                lhs: Box::new(BodyElement::FieldAccess {
+                                    element: Box::new(BodyElement::Ident(0.into())),
+                                    field_name: "Ptr".to_string(),
+                                }),
+                                rhs: Box::new(BodyElement::Ident(0.into())),
+                            },
+                        ]
+                    },
+
+                    // Other descriptor types should fall under the Simple variant
+                    _ => unreachable!(),
+                };
+
+                (elements, AbstractIdent::Generated(0))
+            }
+        };
+
+        ArgTransformBodyFragment {
+            elements,
+            output_ident,
+        }
+    }
+}
+
 /// Abstract identifier for a variable, eventually resolved to a concrete ast::Ident.
 #[derive(Clone, Debug)]
 enum AbstractIdent {
-    Exlicit(String),
+    Explicit(String),
     Generated(u32),
+}
+
+impl From<u32> for AbstractIdent {
+    fn from(num: u32) -> Self {
+        AbstractIdent::Generated(num)
+    }
+}
+
+impl From<&str> for AbstractIdent {
+    fn from(name: &str) -> Self {
+        AbstractIdent::Explicit(name.to_string())
+    }
 }
 
 impl AbstractIdent {
     fn generated_id(&self) -> Option<u32> {
         match self {
-            AbstractIdent::Exlicit(_) => None,
+            AbstractIdent::Explicit(_) => None,
             AbstractIdent::Generated(x) => Some(*x),
         }
     }
 
-    fn increment_id(&mut self, offset: u32) {
+    fn apply_abstract_id_offset(&mut self, offset: u32) {
         match self {
-            AbstractIdent::Exlicit(_) => (),
+            AbstractIdent::Explicit(_) => (),
             AbstractIdent::Generated(x) => *x += offset,
         };
     }
@@ -148,6 +236,7 @@ impl AbstractIdent {
 /// An abstract part of a method body, roughly mapping 1-1 with an ast element.
 #[derive(Clone, Debug)]
 enum BodyElement {
+    Ident(AbstractIdent),
     /// Declares a new local variable of the given type.
     DeclareLocal {
         id: AbstractIdent,
@@ -163,9 +252,9 @@ enum BodyElement {
         element: Box<BodyElement>,
         field_name: String,
     },
-    /// The given ident indexed at element <element>
-    VarIndex {
-        id: AbstractIdent,
+    /// An index of some element, eg `foo[12]`.
+    IndexAccess {
+        element: Box<BodyElement>,
         index: i64,
     },
     /// Takes the address of the given element
@@ -188,19 +277,20 @@ impl BodyElement {
     /// What is the maximum abstract identifier id in this element, if any are present.
     fn max_abstract_id(&self) -> Option<u32> {
         match self {
+            BodyElement::Ident(id) => id.generated_id(),
             BodyElement::DeclareLocal { id, ty: _ } => id.generated_id(),
             BodyElement::MethodCall { method_name: _, args } =>
                 args.iter()
                     .filter_map(|a| a.generated_id())
                     .max(),
             BodyElement::FieldAccess { element, field_name: _ } => element.max_abstract_id(),
-            BodyElement::VarIndex { id, index: _ } => id.generated_id(),
+            BodyElement::IndexAccess { element, index: _ } => element.max_abstract_id(),
             BodyElement::AddressOf { element } => element.max_abstract_id(),
             BodyElement::Assignment { lhs, rhs } =>
                 [lhs, rhs].iter()
                     .filter_map(|a| a.max_abstract_id())
                     .max(),
-            BodyElement::FixedAssignment { ty, id, rhs } =>
+            BodyElement::FixedAssignment { ty: _, id, rhs } =>
                 [id.generated_id(), rhs.max_abstract_id()].iter()
                     .filter(|a| a.is_some())
                     .map(|a| a.unwrap())
@@ -208,66 +298,114 @@ impl BodyElement {
         }
     }
 
-    fn increment_abstract_ids(&mut self, offset: u32) {
+    fn apply_abstract_id_offset(&mut self, offset: u32) {
         match self {
-            BodyElement::DeclareLocal { id, ty: _ } => id.increment_id(offset),
+            BodyElement::Ident(id) => id.apply_abstract_id_offset(offset),
+            BodyElement::DeclareLocal { id, ty: _ } => id.apply_abstract_id_offset(offset),
             BodyElement::MethodCall { method_name: _, args } => {
                 for arg in args.iter_mut() {
-                    arg.increment_id(offset);
+                    arg.apply_abstract_id_offset(offset);
                 }
             },
-            BodyElement::FieldAccess { element, field_name: _ } => element.increment_abstract_ids(offset),
-            BodyElement::VarIndex { id, index: _ } => id.increment_id(offset),
-            BodyElement::AddressOf { element } => element.increment_abstract_ids(offset),
+            BodyElement::FieldAccess { element, field_name: _ } => element.apply_abstract_id_offset(offset),
+            BodyElement::IndexAccess { element, index: _ } => element.apply_abstract_id_offset(offset),
+            BodyElement::AddressOf { element } => element.apply_abstract_id_offset(offset),
             BodyElement::Assignment { lhs, rhs } => {
-                lhs.increment_abstract_ids(offset);
-                rhs.increment_abstract_ids(offset);
+                lhs.apply_abstract_id_offset(offset);
+                rhs.apply_abstract_id_offset(offset);
             },
             BodyElement::FixedAssignment { ty: _, id, rhs } => {
-                id.increment_id(offset);
-                rhs.increment_abstract_ids(offset);
+                id.apply_abstract_id_offset(offset);
+                rhs.apply_abstract_id_offset(offset);
             }
         }
     }
 }
 
-struct BindingMethodBodyFragment {
+/// Represents a single part of method body, responsible for converting idiomatic C# types to their 
+/// underlying FFI stable equivalents.
+/// 
+/// Instances of this struct for types which are already FFI stable will look something like:
+/// ```
+/// #let arg_name = "foo".to_string();
+/// let frag = ArgTransformBodyElement {
+///     elements: Vec::new(),
+///     output_ident: AbstractIdent::Explicit(arg_name)
+/// };
+/// ```
+#[derive(Clone, Debug)]
+struct ArgTransformBodyFragment {
     elements: Vec<BodyElement>,
+    output_ident: AbstractIdent,
 }
 
-impl BindingMethodBodyFragment {
+impl ArgTransformBodyFragment {
     fn max_abstract_id(&self) -> Option<u32> {
-        self.elements.iter()
+        let max = self.elements
+            .iter()
             .filter_map(|e| e.max_abstract_id())
-            .max()
-    }
+            .max();
 
-    /// Assumes two fragments are entirely separate, and munges the abstract idents in each to ensure no collisions
-    fn merge(a: Self, b: Self) -> Self {
-        let mut a = a.elements;
-        let mut b = b.elements;
-
-        let max_a = a.iter().filter_map(|el| el.max_abstract_id()).max();
-        if let Some(offset) = max_a {
-            for el in b.iter_mut() {
-                el.increment_abstract_ids(offset);
-            }
+        match self.output_ident.generated_id() {
+            Some(id) => assert!(id <= max.unwrap()),
+            None => (),
         }
 
-        a.extend_from_slice(&b);
-        let merged = a;
+        max
+    }
 
-        BindingMethodBodyFragment { elements: merged }
+    fn apply_abstract_id_offset(&mut self, offset: u32) {
+        for el in self.elements.iter_mut() {
+            el.apply_abstract_id_offset(offset);
+        }
+
+        self.output_ident.apply_abstract_id_offset(offset)
     }
 }
 
+#[derive(Clone, Debug)]
 struct BindingMethodBody {
-    steps: Vec<BodyElement>,
+    body_elements: Vec<BodyElement>,
 }
 
+#[derive(Clone, Debug)]
 struct BindingMethod {
     args: Vec<BindingMethodArgument>,
     body: BindingMethodBody,
+}
+
+impl BindingMethod {
+    fn new(descriptor: &core::BindgenFunctionDescriptor) -> Result<Self, &'static str> {
+        let args = descriptor.arguments.iter()
+            .map(|arg_desc| BindingMethodArgument::try_from(arg_desc.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Collect up the transform fragments, and ensure that their generated variable names don't collide.
+        let mut transform_fragments: Vec<_> = args.iter()
+            .map(|a| a.transform_body_fragment())
+            .collect();
+        let mut offset = 0;
+        for frag in transform_fragments.iter_mut() {
+            let offset_incr = frag.max_abstract_id().unwrap_or(0);
+            frag.apply_abstract_id_offset(offset);
+            offset += offset_incr;
+        }
+
+        let mut body_elements: Vec<_> = transform_fragments.iter()
+            .flat_map(|frag| frag.elements.iter().cloned())
+            .collect();
+
+        let invocation_args: Vec<AbstractIdent> = transform_fragments.iter()
+            .map(|frag| frag.output_ident.clone())
+            .collect();
+
+        body_elements.push(BodyElement::MethodCall {
+            method_name: descriptor.thunk_name.to_string(),
+            args: invocation_args,
+        });
+
+        Ok(Self { args, body: BindingMethodBody { body_elements }})
+    }
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk

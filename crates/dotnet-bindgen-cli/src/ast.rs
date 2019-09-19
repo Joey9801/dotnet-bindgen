@@ -194,6 +194,12 @@ impl fmt::Display for CSharpType {
 #[derive(Clone, Debug)]
 pub struct Ident(pub String);
 
+impl From<&str> for Ident {
+    fn from(name: &str) -> Self {
+        Self(name.to_string())
+    }
+}
+
 impl Ident {
     pub fn new(s: &str) -> Self {
         Self (s.to_string())
@@ -372,7 +378,7 @@ pub struct MethodArgument {
 }
 
 impl AstNode for MethodArgument {
-    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+    fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
         write!(f, "{} {}", self.ty, self.name)
     }
 }
