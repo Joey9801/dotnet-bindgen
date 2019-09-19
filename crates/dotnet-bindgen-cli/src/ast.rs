@@ -1,6 +1,6 @@
+use std::fmt;
 use std::io;
 use std::string::ToString;
-use std::fmt;
 
 static INDENT_TOK: &'static str = "    ";
 
@@ -51,7 +51,6 @@ impl<T: fmt::Display> AstNode for T {
     fn render(&self, f: &mut dyn io::Write, _ctx: RenderContext) -> Result<(), io::Error> {
         write!(f, "{}", self)
     }
-
 }
 
 pub struct Root {
@@ -164,23 +163,28 @@ pub enum CSharpType {
     UInt32,
     UInt64,
 
-    Array { elem_type: Box<CSharpType> },
+    Array {
+        elem_type: Box<CSharpType>,
+    },
 
-    Ptr { target: Box<CSharpType> },
+    Ptr {
+        target: Box<CSharpType>,
+    },
 
-    Struct { name: Ident }
+    Struct {
+        name: Ident,
+    },
 }
-
 
 impl fmt::Display for CSharpType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CSharpType::Void   => write!(f, "void"),
-            CSharpType::SByte  => write!(f, "SByte"),
-            CSharpType::Int16  => write!(f, "Int16"),
-            CSharpType::Int32  => write!(f, "Int32"),
-            CSharpType::Int64  => write!(f, "Int64"),
-            CSharpType::Byte   => write!(f, "Byte"),
+            CSharpType::Void => write!(f, "void"),
+            CSharpType::SByte => write!(f, "SByte"),
+            CSharpType::Int16 => write!(f, "Int16"),
+            CSharpType::Int32 => write!(f, "Int32"),
+            CSharpType::Int64 => write!(f, "Int64"),
+            CSharpType::Byte => write!(f, "Byte"),
             CSharpType::UInt16 => write!(f, "UInt16"),
             CSharpType::UInt32 => write!(f, "UInt32"),
             CSharpType::UInt64 => write!(f, "UInt64"),
@@ -202,7 +206,7 @@ impl From<&str> for Ident {
 
 impl Ident {
     pub fn new(s: &str) -> Self {
-        Self (s.to_string())
+        Self(s.to_string())
     }
 }
 
@@ -230,7 +234,6 @@ impl fmt::Display for LiteralValue {
     }
 }
 
-
 pub struct Attribute {
     pub name: String,
     pub positional_parameters: Vec<LiteralValue>,
@@ -241,26 +244,25 @@ impl Attribute {
     pub fn dll_import(binary: &str, entrypoint: &str) -> Self {
         Self {
             name: "DllImport".to_string(),
-            positional_parameters: vec![
-                LiteralValue::QuotedString(binary.to_string()),
-            ],
-            named_parameters: vec![
-                (Ident("EntryPoint".to_string()), LiteralValue::QuotedString(entrypoint.to_string()))
-            ],
+            positional_parameters: vec![LiteralValue::QuotedString(binary.to_string())],
+            named_parameters: vec![(
+                Ident("EntryPoint".to_string()),
+                LiteralValue::QuotedString(entrypoint.to_string()),
+            )],
         }
     }
 
     pub fn struct_layout(layout_kind: &str) -> Self {
         Self {
             name: "StructLayout".to_string(),
-            positional_parameters: vec![
-                LiteralValue::EnumValue("LayoutKind".to_string(), layout_kind.to_string()),
-            ],
+            positional_parameters: vec![LiteralValue::EnumValue(
+                "LayoutKind".to_string(),
+                layout_kind.to_string(),
+            )],
             named_parameters: Vec::new(),
         }
     }
 }
-
 
 impl AstNode for Attribute {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
@@ -269,7 +271,7 @@ impl AstNode for Attribute {
 
         if self.positional_parameters.len() + self.named_parameters.len() == 0 {
             write!(f, "]\n")?;
-            return Ok(())
+            return Ok(());
         } else {
             write!(f, "(")?;
         }
@@ -366,7 +368,7 @@ impl AstNode for ReturnStatement {
                 write!(f, "return ")?;
                 v.render(f, ctx)?;
                 write!(f, ";\n")
-            },
+            }
             None => render_ln!(f, &ctx, "return;"),
         }
     }
@@ -436,7 +438,7 @@ impl AstNode for Method {
             Some(b) => b,
             None => {
                 write!(f, ");\n")?;
-                return Ok(())
+                return Ok(());
             }
         };
 
@@ -488,7 +490,14 @@ impl AstNode for Object {
             ObjectType::Struct => "struct ",
         };
 
-        render_ln!(f, &ctx, "public {}{}{}", static_part, object_type, self.name)?;
+        render_ln!(
+            f,
+            &ctx,
+            "public {}{}{}",
+            static_part,
+            object_type,
+            self.name
+        )?;
         render_ln!(f, &ctx, "{{")?;
 
         let mut first = true;

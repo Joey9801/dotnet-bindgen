@@ -144,6 +144,5 @@ impl<'a, T: FfiStable + BindgenTypeDescribe> BindgenTypeDescribe for &'a [T] {
     }
 }
 
-
 /// The generator discovers descriptors by scanning the binary for symbols that start with this prefix.
 pub const BINDGEN_DESCRIBE_PREFIX: &'static str = "__bindgen_describe";

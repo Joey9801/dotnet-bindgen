@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use heck::{CamelCase, MixedCase};
 
-use dotnet_bindgen_core as core;
 use crate::ast;
 use crate::data::BindgenData;
+use dotnet_bindgen_core as core;
 
 /// A simple binding type requires no conversion to cross the FFI boundary
 #[derive(Clone, Debug)]
@@ -41,56 +41,86 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
     type Error = &'static str;
 
     fn try_from(descriptor: core::BindgenTypeDescriptor) -> Result<Self, Self::Error> {
-        use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
         use ast::CSharpType as CS;
+        use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
 
         let converted = match &descriptor {
             Desc::Void => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::Void,
             }),
-            Desc::Int { width: 8, signed: true } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 8,
+                signed: true,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::SByte,
             }),
-            Desc::Int { width: 16, signed: true } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 16,
+                signed: true,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::Int16,
             }),
-            Desc::Int { width: 32, signed: true } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 32,
+                signed: true,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::Int32,
             }),
-            Desc::Int { width: 64, signed: true } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 64,
+                signed: true,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::Int64,
             }),
-            Desc::Int { width: 8, signed: false } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 8,
+                signed: false,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::Byte,
             }),
-            Desc::Int { width: 16, signed: false } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 16,
+                signed: false,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::UInt16,
             }),
-            Desc::Int { width: 32, signed: false } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 32,
+                signed: false,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::UInt32,
             }),
-            Desc::Int { width: 64, signed: false } => BindingType::Simple(SimpleBindingType {
+            Desc::Int {
+                width: 64,
+                signed: false,
+            } => BindingType::Simple(SimpleBindingType {
                 descriptor,
                 cs: CS::UInt64,
             }),
             Desc::Slice { elem_type } => {
                 let elem_type = match BindingType::try_from(*elem_type.clone())? {
                     BindingType::Simple(s) => s.cs,
-                    BindingType::Complex(_) => return Err("Can't generate code for slices of non-trivial types yet"),
+                    BindingType::Complex(_) => {
+                        return Err("Can't generate code for slices of non-trivial types yet")
+                    }
                 };
 
                 BindingType::Complex(ComplexBindingType {
                     descriptor,
-                    thunk_type: CS::Struct { name: ast::Ident::new("SliceAbi") },
-                    idiomatic_type: CS::Array { elem_type: Box::new(elem_type) }
+                    thunk_type: CS::Struct {
+                        name: ast::Ident::new("SliceAbi"),
+                    },
+                    idiomatic_type: CS::Array {
+                        elem_type: Box::new(elem_type),
+                    },
                 })
             }
             _ => unreachable!(),
@@ -125,7 +155,10 @@ impl TryFrom<core::BindgenFunctionArgumentDescriptor> for BindingMethodArgument 
 impl BindingMethodArgument {
     fn transform_body_fragment(&self) -> ArgTransformBodyFragment {
         let (elements, output_ident) = match &self.ty {
-            BindingType::Simple(_) => (Vec::new(), AbstractIdent::Explicit(self.cs_name.to_string())),
+            BindingType::Simple(_) => (
+                Vec::new(),
+                AbstractIdent::Explicit(self.cs_name.to_string()),
+            ),
             BindingType::Complex(complex_ty) => {
                 let elements = match &complex_ty.descriptor {
                     core::BindgenTypeDescriptor::Slice { elem_type: _ } => {
@@ -134,9 +167,9 @@ impl BindingMethodArgument {
                             _ => unreachable!(),
                         };
 
-                        let source_ident = Box::new(BodyElement::Ident(
-                            AbstractIdent::Explicit(self.cs_name.to_string())
-                        ));
+                        let source_ident = Box::new(BodyElement::Ident(AbstractIdent::Explicit(
+                            self.cs_name.to_string(),
+                        )));
 
                         // TODO: The following is horrendous - replacing with a builer might help.
                         // Eg, something like:
@@ -146,10 +179,12 @@ impl BindingMethodArgument {
                         //        .fixed_assign_arr_ptr(1.into(), self.cs_name)
                         //        .build();
 
-                        vec! [
+                        vec![
                             BodyElement::DeclareLocal {
                                 id: AbstractIdent::Generated(0),
-                                ty: ast::CSharpType::Struct { name: "SliceAbi".into() }
+                                ty: ast::CSharpType::Struct {
+                                    name: "SliceAbi".into(),
+                                },
                             },
                             BodyElement::Assignment {
                                 lhs: Box::new(BodyElement::FieldAccess {
@@ -163,7 +198,7 @@ impl BindingMethodArgument {
                             },
                             BodyElement::FixedAssignment {
                                 ty: ast::CSharpType::Ptr {
-                                    target: Box::new((*elem_type.clone()).into())
+                                    target: Box::new((*elem_type.clone()).into()),
                                 },
                                 id: AbstractIdent::Generated(1),
                                 rhs: Box::new(BodyElement::AddressOf {
@@ -171,7 +206,7 @@ impl BindingMethodArgument {
                                         element: source_ident.clone(),
                                         index: 0,
                                     }),
-                                })
+                                }),
                             },
                             BodyElement::Assignment {
                                 lhs: Box::new(BodyElement::FieldAccess {
@@ -181,7 +216,7 @@ impl BindingMethodArgument {
                                 rhs: Box::new(BodyElement::Ident(0.into())),
                             },
                         ]
-                    },
+                    }
 
                     // Other descriptor types should fall under the Simple variant
                     _ => unreachable!(),
@@ -245,7 +280,7 @@ enum BodyElement {
     /// Just calls a method.
     MethodCall {
         method_name: String,
-        args: Vec<AbstractIdent>
+        args: Vec<AbstractIdent>,
     },
     /// A field/property of a variable, eg `foo.Length`.
     FieldAccess {
@@ -269,8 +304,8 @@ enum BodyElement {
     FixedAssignment {
         ty: ast::CSharpType,
         id: AbstractIdent,
-        rhs: Box<BodyElement>
-    }
+        rhs: Box<BodyElement>,
+    },
 }
 
 impl BodyElement {
@@ -279,22 +314,26 @@ impl BodyElement {
         match self {
             BodyElement::Ident(id) => id.generated_id(),
             BodyElement::DeclareLocal { id, ty: _ } => id.generated_id(),
-            BodyElement::MethodCall { method_name: _, args } =>
-                args.iter()
-                    .filter_map(|a| a.generated_id())
-                    .max(),
-            BodyElement::FieldAccess { element, field_name: _ } => element.max_abstract_id(),
+            BodyElement::MethodCall {
+                method_name: _,
+                args,
+            } => args.iter().filter_map(|a| a.generated_id()).max(),
+            BodyElement::FieldAccess {
+                element,
+                field_name: _,
+            } => element.max_abstract_id(),
             BodyElement::IndexAccess { element, index: _ } => element.max_abstract_id(),
             BodyElement::AddressOf { element } => element.max_abstract_id(),
-            BodyElement::Assignment { lhs, rhs } =>
-                [lhs, rhs].iter()
-                    .filter_map(|a| a.max_abstract_id())
-                    .max(),
-            BodyElement::FixedAssignment { ty: _, id, rhs } =>
-                [id.generated_id(), rhs.max_abstract_id()].iter()
+            BodyElement::Assignment { lhs, rhs } => {
+                [lhs, rhs].iter().filter_map(|a| a.max_abstract_id()).max()
+            }
+            BodyElement::FixedAssignment { ty: _, id, rhs } => {
+                [id.generated_id(), rhs.max_abstract_id()]
+                    .iter()
                     .filter(|a| a.is_some())
                     .map(|a| a.unwrap())
-                    .max(),
+                    .max()
+            }
         }
     }
 
@@ -302,18 +341,26 @@ impl BodyElement {
         match self {
             BodyElement::Ident(id) => id.apply_abstract_id_offset(offset),
             BodyElement::DeclareLocal { id, ty: _ } => id.apply_abstract_id_offset(offset),
-            BodyElement::MethodCall { method_name: _, args } => {
+            BodyElement::MethodCall {
+                method_name: _,
+                args,
+            } => {
                 for arg in args.iter_mut() {
                     arg.apply_abstract_id_offset(offset);
                 }
-            },
-            BodyElement::FieldAccess { element, field_name: _ } => element.apply_abstract_id_offset(offset),
-            BodyElement::IndexAccess { element, index: _ } => element.apply_abstract_id_offset(offset),
+            }
+            BodyElement::FieldAccess {
+                element,
+                field_name: _,
+            } => element.apply_abstract_id_offset(offset),
+            BodyElement::IndexAccess { element, index: _ } => {
+                element.apply_abstract_id_offset(offset)
+            }
             BodyElement::AddressOf { element } => element.apply_abstract_id_offset(offset),
             BodyElement::Assignment { lhs, rhs } => {
                 lhs.apply_abstract_id_offset(offset);
                 rhs.apply_abstract_id_offset(offset);
-            },
+            }
             BodyElement::FixedAssignment { ty: _, id, rhs } => {
                 id.apply_abstract_id_offset(offset);
                 rhs.apply_abstract_id_offset(offset);
@@ -322,9 +369,9 @@ impl BodyElement {
     }
 }
 
-/// Represents a single part of method body, responsible for converting idiomatic C# types to their 
+/// Represents a single part of method body, responsible for converting idiomatic C# types to their
 /// underlying FFI stable equivalents.
-/// 
+///
 /// Instances of this struct for types which are already FFI stable will look something like:
 /// ```
 /// #let arg_name = "foo".to_string();
@@ -341,7 +388,8 @@ struct ArgTransformBodyFragment {
 
 impl ArgTransformBodyFragment {
     fn max_abstract_id(&self) -> Option<u32> {
-        let max = self.elements
+        let max = self
+            .elements
             .iter()
             .filter_map(|e| e.max_abstract_id())
             .max();
@@ -376,14 +424,15 @@ struct BindingMethod {
 
 impl BindingMethod {
     fn new(descriptor: &core::BindgenFunctionDescriptor) -> Result<Self, &'static str> {
-        let args = descriptor.arguments.iter()
+        let args = descriptor
+            .arguments
+            .iter()
             .map(|arg_desc| BindingMethodArgument::try_from(arg_desc.clone()))
             .collect::<Result<Vec<_>, _>>()?;
 
         // Collect up the transform fragments, and ensure that their generated variable names don't collide.
-        let mut transform_fragments: Vec<_> = args.iter()
-            .map(|a| a.transform_body_fragment())
-            .collect();
+        let mut transform_fragments: Vec<_> =
+            args.iter().map(|a| a.transform_body_fragment()).collect();
         let mut offset = 0;
         for frag in transform_fragments.iter_mut() {
             let offset_incr = frag.max_abstract_id().unwrap_or(0);
@@ -391,11 +440,13 @@ impl BindingMethod {
             offset += offset_incr;
         }
 
-        let mut body_elements: Vec<_> = transform_fragments.iter()
+        let mut body_elements: Vec<_> = transform_fragments
+            .iter()
             .flat_map(|frag| frag.elements.iter().cloned())
             .collect();
 
-        let invocation_args: Vec<AbstractIdent> = transform_fragments.iter()
+        let invocation_args: Vec<AbstractIdent> = transform_fragments
+            .iter()
             .map(|frag| frag.output_ident.clone())
             .collect();
 
@@ -404,45 +455,76 @@ impl BindingMethod {
             args: invocation_args,
         });
 
-        Ok(Self { args, body: BindingMethodBody { body_elements }})
+        Ok(Self {
+            args,
+            body: BindingMethodBody { body_elements },
+        })
     }
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
 fn map_descriptor_to_thunk_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
-    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
     use ast::CSharpType as CS;
+    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
     match descriptor {
         Desc::Void => CS::Void,
-        Desc::Int { width: 8, signed: true } => CS::SByte,
-        Desc::Int { width: 16, signed: true } => CS::Int16,
-        Desc::Int { width: 32, signed: true } => CS::Int32,
-        Desc::Int { width: 64, signed: true } => CS::Int64,
-        Desc::Int { width: 8, signed: false } => CS::Byte,
-        Desc::Int { width: 16, signed: false } => CS::UInt16,
-        Desc::Int { width: 32, signed: false } => CS::UInt32,
-        Desc::Int { width: 64, signed: false } => CS::UInt64,
-        Desc::Slice { elem_type: _ } => CS::Struct { name: ast::Ident("SliceAbi".to_string()) },
-        _ => panic!("Untranslatable type")
+        Desc::Int {
+            width: 8,
+            signed: true,
+        } => CS::SByte,
+        Desc::Int {
+            width: 16,
+            signed: true,
+        } => CS::Int16,
+        Desc::Int {
+            width: 32,
+            signed: true,
+        } => CS::Int32,
+        Desc::Int {
+            width: 64,
+            signed: true,
+        } => CS::Int64,
+        Desc::Int {
+            width: 8,
+            signed: false,
+        } => CS::Byte,
+        Desc::Int {
+            width: 16,
+            signed: false,
+        } => CS::UInt16,
+        Desc::Int {
+            width: 32,
+            signed: false,
+        } => CS::UInt32,
+        Desc::Int {
+            width: 64,
+            signed: false,
+        } => CS::UInt64,
+        Desc::Slice { elem_type: _ } => CS::Struct {
+            name: ast::Ident("SliceAbi".to_string()),
+        },
+        _ => panic!("Untranslatable type"),
     }
 }
 
 pub fn func_descriptor_to_imported_method(
     binary_name: &str,
-    descriptor: &core::BindgenFunctionDescriptor
+    descriptor: &core::BindgenFunctionDescriptor,
 ) -> ast::Method {
-
-    let attributes = vec![
-        ast::Attribute::dll_import(binary_name, &descriptor.thunk_name)
-    ];
+    let attributes = vec![ast::Attribute::dll_import(
+        binary_name,
+        &descriptor.thunk_name,
+    )];
     let name = descriptor.thunk_name.to_string();
     let return_ty = map_descriptor_to_thunk_type(&descriptor.return_ty);
-    let args = descriptor.arguments
+    let args = descriptor
+        .arguments
         .iter()
         .map(|arg| ast::MethodArgument {
             name: ast::Ident(arg.name.to_string()),
-            ty: map_descriptor_to_thunk_type(&arg.ty)
-        }).collect();
+            ty: map_descriptor_to_thunk_type(&arg.ty),
+        })
+        .collect();
 
     ast::Method {
         attributes,
@@ -459,26 +541,31 @@ pub fn func_descriptor_to_imported_method(
 
 /// Maps a BindgenTypeDescriptor to the type it should appear as in the generated C# wrapper
 fn map_descriptor_to_idiomatic_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
-    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
     use ast::CSharpType as CS;
+    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
     match descriptor {
-        Desc::Slice { elem_type: slice_elem_type } =>
-            CS::Array { elem_type: Box::new(map_descriptor_to_idiomatic_type(&slice_elem_type)) },
+        Desc::Slice {
+            elem_type: slice_elem_type,
+        } => CS::Array {
+            elem_type: Box::new(map_descriptor_to_idiomatic_type(&slice_elem_type)),
+        },
         other => map_descriptor_to_thunk_type(other),
     }
 }
 
 pub fn func_descriptor_to_idiomatic_wrapper(
-    descriptor: &core::BindgenFunctionDescriptor
+    descriptor: &core::BindgenFunctionDescriptor,
 ) -> ast::Method {
     let name = descriptor.real_name.to_camel_case();
     let return_ty = map_descriptor_to_idiomatic_type(&descriptor.return_ty);
-    let args = descriptor.arguments
+    let args = descriptor
+        .arguments
         .iter()
         .map(|arg| ast::MethodArgument {
             name: ast::Ident(arg.name.to_mixed_case()),
-            ty: map_descriptor_to_idiomatic_type(&arg.ty)
-        }).collect();
+            ty: map_descriptor_to_idiomatic_type(&arg.ty),
+        })
+        .collect();
 
     let mut body = Vec::<Box<dyn ast::AstNode>>::new();
 
@@ -493,7 +580,7 @@ pub fn func_descriptor_to_idiomatic_wrapper(
                 transformed_args.push(ast::Ident::new(&transformed_name));
 
                 body.push(Box::new(ast::Statement {
-                    expr: format!("SliceAbi {}", transformed_name)
+                    expr: format!("SliceAbi {}", transformed_name),
                 }));
 
                 body.push(Box::new(ast::FixedAssignment {
@@ -512,9 +599,9 @@ pub fn func_descriptor_to_idiomatic_wrapper(
                 }));
 
                 body.push(Box::new(ast::Statement {
-                    expr: format!("{}.Len = (UInt64) {}.Length", transformed_name, raw_name)
+                    expr: format!("{}.Len = (UInt64) {}.Length", transformed_name, raw_name),
                 }));
-            },
+            }
 
             // If not a slice, no transform needed
             _ => transformed_args.push(ast::Ident(arg.name.to_mixed_case())),
@@ -624,12 +711,11 @@ impl CodegenInfo {
         let mut methods = Vec::new();
 
         for descriptor in &self.data.descriptors {
-            methods.push(
-                func_descriptor_to_imported_method(&self.lib_name, &descriptor)
-            );
-            methods.push(
-                func_descriptor_to_idiomatic_wrapper(&descriptor)
-            );
+            methods.push(func_descriptor_to_imported_method(
+                &self.lib_name,
+                &descriptor,
+            ));
+            methods.push(func_descriptor_to_idiomatic_wrapper(&descriptor));
         }
 
         ast::Root {
@@ -648,9 +734,7 @@ impl CodegenInfo {
                 name: "Test.Namespace".into(),
                 children: vec![
                     Box::new(ast::Object {
-                        attributes: vec![
-                            ast::Attribute::struct_layout("Sequential"),
-                        ],
+                        attributes: vec![ast::Attribute::struct_layout("Sequential")],
                         object_type: ast::ObjectType::Struct,
                         is_static: false,
                         name: "SliceAbi".into(),
@@ -658,13 +742,15 @@ impl CodegenInfo {
                         fields: vec![
                             ast::Field {
                                 name: "Ptr".to_string(),
-                                ty: ast::CSharpType::Struct { name: ast::Ident::new("IntPtr"), }
+                                ty: ast::CSharpType::Struct {
+                                    name: ast::Ident::new("IntPtr"),
+                                },
                             },
                             ast::Field {
                                 name: "Len".to_string(),
                                 ty: ast::CSharpType::UInt64,
                             },
-                        ]
+                        ],
                     }),
                     Box::new(ast::Object {
                         attributes: Vec::new(),
