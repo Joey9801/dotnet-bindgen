@@ -92,8 +92,12 @@ pub struct BindgenFunctionArgumentDescriptor {
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindgenFunctionDescriptor {
+    /// The original name of the function that the #[dotnet_bindgen] attribute was placed on
     pub real_name: String,
+
+    /// The no_mangle'd name of the generated thunk
     pub thunk_name: String,
+
     pub arguments: Vec<BindgenFunctionArgumentDescriptor>,
     pub return_ty: BindgenTypeDescriptor,
 }

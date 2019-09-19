@@ -419,7 +419,25 @@ struct BindingMethodBody {
 #[derive(Clone, Debug)]
 struct BindingMethod {
     args: Vec<BindingMethodArgument>,
-    body: BindingMethodBody,
+
+    /// The name of the method that received the original #[dotnet_bindgen] attribute
+    /// 
+    /// This isn't neccesarily unique among the bindings, or the name of the symbol in the binary,
+    /// as the if a thunk is generated the method doens't have to have #[no_mangle] attached.
+    rust_name: String,
+
+    /// The symbol name of the generated rust thunk, if one was generated.
+    /// 
+    /// Guaranteed to be unique among the bindings.
+    rust_thunk_name: String,
+
+    /// The name of the C# method to expose from the bindings BindingMethodBody
+    /// 
+    /// Typically just rust_name.to_camel_case().
+    cs_name: String,
+
+    /// If a C# thunk must be generated, the body of that thunk.
+    cs_thunk_body: Option<BindingMethodBody>,
 }
 
 impl BindingMethod {
@@ -429,6 +447,10 @@ impl BindingMethod {
             .iter()
             .map(|arg_desc| BindingMethodArgument::try_from(arg_desc.clone()))
             .collect::<Result<Vec<_>, _>>()?;
+
+        let rust_name = descriptor.real_name.to_string();
+        let rust_thunk_name = descriptor.thunk_name.to_string();
+        let cs_name = rust_name.to_camel_case();
 
         // Collect up the transform fragments, and ensure that their generated variable names don't collide.
         let mut transform_fragments: Vec<_> =
@@ -445,19 +467,23 @@ impl BindingMethod {
             .flat_map(|frag| frag.elements.iter().cloned())
             .collect();
 
+        // Add one final body element, calling the bound method with all of the (possibly) transformed arguments.
         let invocation_args: Vec<AbstractIdent> = transform_fragments
             .iter()
             .map(|frag| frag.output_ident.clone())
             .collect();
-
         body_elements.push(BodyElement::MethodCall {
             method_name: descriptor.thunk_name.to_string(),
             args: invocation_args,
         });
+        let cs_thunk_body = Some(BindingMethodBody { body_elements });
 
         Ok(Self {
             args,
-            body: BindingMethodBody { body_elements },
+            rust_name,
+            rust_thunk_name,
+            cs_name,
+            cs_thunk_body,
         })
     }
 }
