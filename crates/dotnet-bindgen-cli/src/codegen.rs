@@ -14,7 +14,7 @@ struct SimpleBindingType {
     descriptor: core::BindgenTypeDescriptor,
 
     /// The single C# type that is both idiomatic, and suitable for the extern method.
-    cs: ast::CSharpType,
+    cs_type: ast::CSharpType,
 }
 
 /// A Complex BindingType is one that requires some manual marshalling.
@@ -37,6 +37,22 @@ enum BindingType {
     Complex(ComplexBindingType),
 }
 
+impl BindingType {
+    fn native_type(&self) -> ast::CSharpType {
+        match self {
+            BindingType::Simple(s) => s.cs_type,
+            BindingType::Complex(c) => c.thunk_type,
+        }
+    }
+
+    fn idiomatic_type(&self) -> ast::CSharpType {
+        match self {
+            BindingType::Simple(s) => s.cs_type,
+            BindingType::Complex(c) => c.idiomatic_type,
+        }
+    }
+}
+
 impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
     type Error = &'static str;
 
@@ -47,67 +63,67 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
         let converted = match &descriptor {
             Desc::Void => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::Void,
+                cs_type: CS::Void,
             }),
             Desc::Int {
                 width: 8,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::SByte,
+                cs_type: CS::SByte,
             }),
             Desc::Int {
                 width: 16,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::Int16,
+                cs_type: CS::Int16,
             }),
             Desc::Int {
                 width: 32,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::Int32,
+                cs_type: CS::Int32,
             }),
             Desc::Int {
                 width: 64,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::Int64,
+                cs_type: CS::Int64,
             }),
             Desc::Int {
                 width: 8,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::Byte,
+                cs_type: CS::Byte,
             }),
             Desc::Int {
                 width: 16,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::UInt16,
+                cs_type: CS::UInt16,
             }),
             Desc::Int {
                 width: 32,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::UInt32,
+                cs_type: CS::UInt32,
             }),
             Desc::Int {
                 width: 64,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
                 descriptor,
-                cs: CS::UInt64,
+                cs_type: CS::UInt64,
             }),
             Desc::Slice { elem_type } => {
                 let elem_type = match BindingType::try_from(*elem_type.clone())? {
-                    BindingType::Simple(s) => s.cs,
+                    BindingType::Simple(s) => s.cs_type,
                     BindingType::Complex(_) => {
                         return Err("Can't generate code for slices of non-trivial types yet")
                     }
@@ -420,6 +436,11 @@ struct BindingMethodBody {
 struct BindingMethod {
     args: Vec<BindingMethodArgument>,
 
+    return_ty: BindingType,
+
+    /// The name of the binary containing the method, suitable for using directly in a DllImport attribute.
+    binary_name: String,
+
     /// The name of the method that received the original #[dotnet_bindgen] attribute
     /// 
     /// This isn't neccesarily unique among the bindings, or the name of the symbol in the binary,
@@ -441,12 +462,16 @@ struct BindingMethod {
 }
 
 impl BindingMethod {
-    fn new(descriptor: &core::BindgenFunctionDescriptor) -> Result<Self, &'static str> {
+    pub fn new(binary_name: &str, descriptor: &core::BindgenFunctionDescriptor) -> Result<Self, &'static str> {
+        let binary_name = binary_name.to_string();
+
         let args = descriptor
             .arguments
             .iter()
             .map(|arg_desc| BindingMethodArgument::try_from(arg_desc.clone()))
             .collect::<Result<Vec<_>, _>>()?;
+
+        let return_ty = descriptor.return_ty.clone().try_into()?;
 
         let rust_name = descriptor.real_name.to_string();
         let rust_thunk_name = descriptor.thunk_name.to_string();
@@ -479,12 +504,52 @@ impl BindingMethod {
         let cs_thunk_body = Some(BindingMethodBody { body_elements });
 
         Ok(Self {
+            binary_name,
             args,
+            return_ty,
             rust_name,
             rust_thunk_name,
             cs_name,
             cs_thunk_body,
         })
+    }
+
+    /// Generate the ast nodes for this bound method
+    /// 
+    /// This may be more than one method, eg if a thunk is needed to marshall arguments/return values to/from
+    /// an FFI stable representation.
+    pub fn to_ast_methods(&self) -> Vec<ast::Method> {
+        vec![
+            self.dll_imported_method(),
+        ]
+    }
+
+    fn dll_imported_method(&self) -> ast::Method {
+        let attributes = vec![
+            ast::Attribute::dll_import(&self.binary_name, &self.rust_thunk_name)
+        ];
+
+        let return_ty = self.return_ty.native_type();
+
+        let args = self.args
+            .iter()
+            .map(|arg| ast::MethodArgument {
+                name: arg.rust_name.as_str().into(),
+                ty: arg.ty.native_type(),
+            })
+            .collect();
+
+        ast::Method {
+            attributes,
+            is_public: false,
+            is_static: true,
+            is_extern: true,
+            is_unsafe: false,
+            name: self.rust_thunk_name.to_string(),
+            return_ty,
+            args,
+            body: None,
+        }
     }
 }
 
