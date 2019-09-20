@@ -121,6 +121,21 @@ impl AstNode for UsingStatement {
     }
 }
 
+/// Renders its children between a pair of curly braces
+pub struct Scope {
+    pub children: Vec<Box<dyn AstNode>>,
+}
+
+impl AstNode for Scope {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_ln!(f, &ctx, "{{")?;
+        for child in self.children {
+            child.render(f, ctx.indented())?;
+        }
+        render_ln!(f, &ctx, "}}")
+    }
+}
+
 pub struct Namespace {
     pub name: String,
     pub children: Vec<Box<dyn AstNode>>,
@@ -308,6 +323,74 @@ pub struct Statement {
 impl AstNode for Statement {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_ln!(f, &ctx, "{};", self.expr)
+    }
+}
+
+pub struct VariableDeclaration {
+    name: Ident,
+    ty: CSharpType,
+}
+
+impl AstNode for VariableDeclaration {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_ln!(f, &ctx, "{} {};", self.ty, self.name)
+    }
+}
+
+pub struct FieldAccess {
+    element: Box<dyn AstNode>,
+    field_name: Ident,
+}
+
+impl fmt::Display for FieldAccess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut elem_render_buf: Vec<u8> = Vec::new();
+        self.element.render(&mut elem_render_buf, RenderContext::default());
+        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+
+        write!(f, "({}).{}", rendered_elem, self.field_name)
+    }
+}
+
+pub struct IndexAccess {
+    element: Box<dyn AstNode>,
+    index: i32,
+}
+
+impl fmt::Display for IndexAccess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut elem_render_buf: Vec<u8> = Vec::new();
+        self.element.render(&mut elem_render_buf, RenderContext::default());
+        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+
+        write!(f, "({})[{}]", rendered_elem, self.index)
+    }
+}
+
+pub struct AddressOf {
+    element: Box<dyn AstNode>
+}
+
+impl fmt::Display for AddressOf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut elem_render_buf: Vec<u8> = Vec::new();
+        self.element.render(&mut elem_render_buf, RenderContext::default());
+        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+
+        write!(f, "&({})", rendered_elem)
+    }
+}
+
+pub struct Assignment {
+    lhs: Box<dyn AstNode>,
+    rhs: Box<dyn AstNode>,
+}
+
+impl AstNode for Assignment {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        self.lhs.render(f, ctx)?;
+        write!(f, " = ")?;
+        self.rhs.render(f, ctx)
     }
 }
 
