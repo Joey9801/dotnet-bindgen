@@ -562,19 +562,35 @@ impl BindingMethodBody {
     }
 
     pub fn to_ast_nodes(&self) -> Vec<Box<dyn ast::AstNode>> {
-        self.body_elements
-            .iter()
-            .map(|el| {
-                let node = el.to_ast_node();
-                if el.is_top_level() {
-                    node
-                } else {
-                    Box::new(ast::Statement {
-                        expr: node,
-                    })
+        fn render_elements<'a>(elements: &'a mut impl Iterator<Item = &'a BodyElement>) -> Vec<Box<dyn ast::AstNode>> {
+            let mut ast_nodes = Vec::new();
+            let mut next = elements.next();
+            while let Some(el) = next {
+                ast_nodes.push({
+                    let node = el.to_ast_node();
+                    if el.is_top_level() {
+                        node
+                    } else {
+                        Box::new(ast::Statement {
+                            expr: node
+                        })
+                    }
+                });
+
+                if el.requires_new_scope() {
+                    ast_nodes.push(Box::new(ast::Scope {
+                        children: render_elements(elements),
+                    }));
+                    break;
                 }
-            })
-            .collect()
+
+                next = elements.next();
+            }
+
+            ast_nodes
+        }
+
+        render_elements(&mut self.body_elements.iter())
     }
 }
 
