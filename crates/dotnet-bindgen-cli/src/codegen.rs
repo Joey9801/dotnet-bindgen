@@ -347,6 +347,9 @@ enum BodyElement {
     },
     /// Wraps all elements after it in the rendered AST in an unsafe block
     Unsafe,
+    Return {
+        element: Option<Box<BodyElement>>,
+    }
 }
 
 impl BodyElement {
@@ -377,6 +380,8 @@ impl BodyElement {
                     .max()
             },
             BodyElement::Unsafe => None,
+            BodyElement::Return { element: Some(element) } => element.max_abstract_id(),
+            BodyElement::Return { element: None } => None,
         }
     }
 
@@ -410,6 +415,8 @@ impl BodyElement {
                 rhs.apply_abstract_id_offset(offset);
             },
             BodyElement::Unsafe => (),
+            BodyElement::Return { element: Some(element) } => element.apply_abstract_id_offset(offset),
+            BodyElement::Return { element: None } => (),
         }
     }
 
@@ -425,6 +432,7 @@ impl BodyElement {
             BodyElement::Assignment {..} => false,
             BodyElement::FixedAssignment {..} => true,
             BodyElement::Unsafe => true,
+            BodyElement::Return{..} => false,
         }
     }
 
@@ -440,6 +448,7 @@ impl BodyElement {
             BodyElement::Assignment {..} => false,
             BodyElement::FixedAssignment {..} => true,
             BodyElement::Unsafe => true,
+            BodyElement::Return{..} => true,
         }
     }
 
@@ -502,7 +511,15 @@ impl BodyElement {
             ),
             BodyElement::Unsafe => Box::new(
                 ast::UnsafeStatement {}
-            )
+            ),
+            BodyElement::Return { element } => {
+                Box::new(ast::ReturnStatement {
+                    value: match element {
+                        Some(element) => Some(element.to_ast_node()),
+                        None => None,
+                    }
+                })
+            },
         }
     }
 }
@@ -584,10 +601,19 @@ impl BindingMethodBody {
             .iter()
             .map(|frag| frag.output_ident.clone())
             .collect();
-        body_elements.push(BodyElement::MethodCall {
+
+        let underlying_call = BodyElement::MethodCall {
             method_name: descriptor.thunk_name.to_string(),
             args: invocation_args,
-        });
+        };
+
+        if descriptor.return_ty != core::BindgenTypeDescriptor::Void {
+            body_elements.push(BodyElement::Return {
+                element: Some(Box::new(underlying_call))
+            });
+        } else {
+            body_elements.push(underlying_call);
+        }
 
         Self { body_elements }
     }
