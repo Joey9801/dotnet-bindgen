@@ -40,15 +40,15 @@ enum BindingType {
 impl BindingType {
     fn native_type(&self) -> ast::CSharpType {
         match self {
-            BindingType::Simple(s) => s.cs_type,
-            BindingType::Complex(c) => c.thunk_type,
+            BindingType::Simple(s) => s.cs_type.clone(),
+            BindingType::Complex(c) => c.thunk_type.clone(),
         }
     }
 
     fn idiomatic_type(&self) -> ast::CSharpType {
         match self {
-            BindingType::Simple(s) => s.cs_type,
-            BindingType::Complex(c) => c.idiomatic_type,
+            BindingType::Simple(s) => s.cs_type.clone(),
+            BindingType::Complex(c) => c.idiomatic_type.clone(),
         }
     }
 }
@@ -229,7 +229,7 @@ impl BindingMethodArgument {
                                     element: Box::new(BodyElement::Ident(0.into())),
                                     field_name: "Ptr".to_string(),
                                 }),
-                                rhs: Box::new(BodyElement::Ident(0.into())),
+                                rhs: Box::new(BodyElement::Ident(1.into())),
                             },
                         ]
                     }
@@ -282,6 +282,17 @@ impl AbstractIdent {
             AbstractIdent::Generated(x) => *x += offset,
         };
     }
+
+    fn to_concrete_ident(&self) -> ast::Ident {
+        match self {
+            AbstractIdent::Explicit(name) => ast::Ident(
+                name.to_string()
+            ),
+            AbstractIdent::Generated(idx) => ast::Ident(
+                format!("__bindgen_var_{}", idx)
+            ),
+        }
+    }
 }
 
 /// An abstract part of a method body, roughly mapping 1-1 with an ast element.
@@ -306,7 +317,7 @@ enum BodyElement {
     /// An index of some element, eg `foo[12]`.
     IndexAccess {
         element: Box<BodyElement>,
-        index: i64,
+        index: i32,
     },
     /// Takes the address of the given element
     AddressOf {
@@ -383,6 +394,86 @@ impl BodyElement {
             }
         }
     }
+
+    fn requires_new_scope(&self) -> bool {
+        match self {
+            BodyElement::Ident (_) => false,
+            BodyElement::DeclareLocal {..} => false,
+            BodyElement::MethodCall {..} => false,
+            BodyElement::FieldAccess {..} => false,
+            BodyElement::IndexAccess {..} => false,
+            BodyElement::AddressOf {..} => false,
+            BodyElement::Assignment {..} => false,
+            BodyElement::FixedAssignment {..} => true,
+        }
+    }
+
+    fn is_top_level(&self) -> bool {
+        match self {
+            BodyElement::Ident (_) => false,
+            BodyElement::DeclareLocal {..} => true,
+            BodyElement::MethodCall {..} => false,
+            BodyElement::FieldAccess {..} => false,
+            BodyElement::IndexAccess {..} => false,
+            BodyElement::AddressOf {..} => false,
+            BodyElement::Assignment {..} => false,
+            BodyElement::FixedAssignment {..} => true,
+        }
+    }
+
+    fn to_ast_node(&self) -> Box<dyn ast::AstNode> {
+        match self {
+            BodyElement::Ident(id) => Box::new(id.to_concrete_ident()),
+            BodyElement::DeclareLocal { id, ty } => Box::new(
+                ast::VariableDeclaration {
+                    name: id.to_concrete_ident(),
+                    ty: ty.clone()
+                }
+            ),
+            BodyElement::MethodCall { method_name, args } => {
+                let args = args.iter()
+                    .map(|a| a.to_concrete_ident())
+                    .collect();
+                Box::new(
+                    ast::MethodInvocation {
+                        target: None,
+                        method_name: ast::Ident(method_name.to_string()),
+                        args,
+                    }
+                )
+            },
+            BodyElement::FieldAccess { element, field_name } => Box::new(
+                ast::FieldAccess {
+                    element: element.to_ast_node(),
+                    field_name: ast::Ident(field_name.to_string()),
+                }
+            ),
+            BodyElement::IndexAccess { element, index } => Box::new(
+                ast::IndexAccess {
+                    element: element.to_ast_node(),
+                    index: *index,
+                }
+            ),
+            BodyElement::AddressOf { element } => Box::new(
+                ast::AddressOf {
+                    element: element.to_ast_node(),
+                }
+            ),
+            BodyElement::Assignment { lhs, rhs } => Box::new(
+                ast::Assignment {
+                    lhs: lhs.to_ast_node(),
+                    rhs: rhs.to_ast_node(),
+                }
+            ),
+            BodyElement::FixedAssignment { ty, id, rhs } => Box::new(
+                ast::FixedAssignment {
+                    ty: ty.clone(),
+                    id: id.to_concrete_ident(),
+                    rhs: rhs.to_ast_node(),
+                }
+            )
+        }
+    }
 }
 
 /// Represents a single part of method body, responsible for converting idiomatic C# types to their
@@ -432,6 +523,61 @@ struct BindingMethodBody {
     body_elements: Vec<BodyElement>,
 }
 
+impl BindingMethodBody {
+    pub fn new(
+        descriptor: &core::BindgenFunctionDescriptor,
+        args: &[BindingMethodArgument]
+    ) -> Self {
+        let mut transform_fragments: Vec<_> =
+            args.iter().map(|a| a.transform_body_fragment()).collect();
+
+        // Ensure that their generated idents from each fragment don't intersect
+        let mut offset = 0;
+        for frag in transform_fragments.iter_mut() {
+            match frag.max_abstract_id() {
+                Some(m) => {
+                    frag.apply_abstract_id_offset(offset);
+                    offset += m + 1;
+                }
+                None => ()
+            }
+        }
+
+        let mut body_elements: Vec<_> = transform_fragments
+            .iter()
+            .flat_map(|frag| frag.elements.iter().cloned())
+            .collect();
+
+        // Add one final body element, calling the bound method with all of the (possibly) transformed arguments.
+        let invocation_args: Vec<AbstractIdent> = transform_fragments
+            .iter()
+            .map(|frag| frag.output_ident.clone())
+            .collect();
+        body_elements.push(BodyElement::MethodCall {
+            method_name: descriptor.thunk_name.to_string(),
+            args: invocation_args,
+        });
+
+        Self { body_elements }
+    }
+
+    pub fn to_ast_nodes(&self) -> Vec<Box<dyn ast::AstNode>> {
+        self.body_elements
+            .iter()
+            .map(|el| {
+                let node = el.to_ast_node();
+                if el.is_top_level() {
+                    node
+                } else {
+                    Box::new(ast::Statement {
+                        expr: node,
+                    })
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct BindingMethod {
     args: Vec<BindingMethodArgument>,
@@ -477,31 +623,7 @@ impl BindingMethod {
         let rust_thunk_name = descriptor.thunk_name.to_string();
         let cs_name = rust_name.to_camel_case();
 
-        // Collect up the transform fragments, and ensure that their generated variable names don't collide.
-        let mut transform_fragments: Vec<_> =
-            args.iter().map(|a| a.transform_body_fragment()).collect();
-        let mut offset = 0;
-        for frag in transform_fragments.iter_mut() {
-            let offset_incr = frag.max_abstract_id().unwrap_or(0);
-            frag.apply_abstract_id_offset(offset);
-            offset += offset_incr;
-        }
-
-        let mut body_elements: Vec<_> = transform_fragments
-            .iter()
-            .flat_map(|frag| frag.elements.iter().cloned())
-            .collect();
-
-        // Add one final body element, calling the bound method with all of the (possibly) transformed arguments.
-        let invocation_args: Vec<AbstractIdent> = transform_fragments
-            .iter()
-            .map(|frag| frag.output_ident.clone())
-            .collect();
-        body_elements.push(BodyElement::MethodCall {
-            method_name: descriptor.thunk_name.to_string(),
-            args: invocation_args,
-        });
-        let cs_thunk_body = Some(BindingMethodBody { body_elements });
+        let cs_thunk_body = Some(BindingMethodBody::new(descriptor, &args));
 
         Ok(Self {
             binary_name,
@@ -521,6 +643,7 @@ impl BindingMethod {
     pub fn to_ast_methods(&self) -> Vec<ast::Method> {
         vec![
             self.dll_imported_method(),
+            self.thunk_method(),
         ]
     }
 
@@ -551,181 +674,44 @@ impl BindingMethod {
             body: None,
         }
     }
+
+    fn thunk_method(&self) -> ast::Method {
+        let attributes = Vec::new();
+
+        let name = self.cs_name.to_string();
+
+        // TODO: Make this the idiomatic type + add the relevant marshalling to the body.
+        let return_ty = self.return_ty.native_type();
+
+        let args = self.args
+            .iter()
+            .map(|arg| ast::MethodArgument {
+                name: arg.cs_name.as_str().into(),
+                ty: arg.ty.idiomatic_type(),
+            })
+            .collect();
+        
+        let body = Some(self.cs_thunk_body
+            .as_ref()
+            .unwrap()
+            .to_ast_nodes()
+        );
+
+        ast::Method {
+            attributes,
+            is_public: true,
+            is_static: true,
+            is_extern: false,
+            is_unsafe: true,
+            name,
+            return_ty,
+            args,
+            body,
+        }
+    }
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
-fn map_descriptor_to_thunk_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
-    use ast::CSharpType as CS;
-    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
-    match descriptor {
-        Desc::Void => CS::Void,
-        Desc::Int {
-            width: 8,
-            signed: true,
-        } => CS::SByte,
-        Desc::Int {
-            width: 16,
-            signed: true,
-        } => CS::Int16,
-        Desc::Int {
-            width: 32,
-            signed: true,
-        } => CS::Int32,
-        Desc::Int {
-            width: 64,
-            signed: true,
-        } => CS::Int64,
-        Desc::Int {
-            width: 8,
-            signed: false,
-        } => CS::Byte,
-        Desc::Int {
-            width: 16,
-            signed: false,
-        } => CS::UInt16,
-        Desc::Int {
-            width: 32,
-            signed: false,
-        } => CS::UInt32,
-        Desc::Int {
-            width: 64,
-            signed: false,
-        } => CS::UInt64,
-        Desc::Slice { elem_type: _ } => CS::Struct {
-            name: ast::Ident("SliceAbi".to_string()),
-        },
-        _ => panic!("Untranslatable type"),
-    }
-}
-
-pub fn func_descriptor_to_imported_method(
-    binary_name: &str,
-    descriptor: &core::BindgenFunctionDescriptor,
-) -> ast::Method {
-    let attributes = vec![ast::Attribute::dll_import(
-        binary_name,
-        &descriptor.thunk_name,
-    )];
-    let name = descriptor.thunk_name.to_string();
-    let return_ty = map_descriptor_to_thunk_type(&descriptor.return_ty);
-    let args = descriptor
-        .arguments
-        .iter()
-        .map(|arg| ast::MethodArgument {
-            name: ast::Ident(arg.name.to_string()),
-            ty: map_descriptor_to_thunk_type(&arg.ty),
-        })
-        .collect();
-
-    ast::Method {
-        attributes,
-        is_public: false,
-        is_static: true,
-        is_extern: true,
-        is_unsafe: false,
-        name,
-        return_ty,
-        args,
-        body: None,
-    }
-}
-
-/// Maps a BindgenTypeDescriptor to the type it should appear as in the generated C# wrapper
-fn map_descriptor_to_idiomatic_type(descriptor: &core::BindgenTypeDescriptor) -> ast::CSharpType {
-    use ast::CSharpType as CS;
-    use dotnet_bindgen_core::BindgenTypeDescriptor as Desc;
-    match descriptor {
-        Desc::Slice {
-            elem_type: slice_elem_type,
-        } => CS::Array {
-            elem_type: Box::new(map_descriptor_to_idiomatic_type(&slice_elem_type)),
-        },
-        other => map_descriptor_to_thunk_type(other),
-    }
-}
-
-pub fn func_descriptor_to_idiomatic_wrapper(
-    descriptor: &core::BindgenFunctionDescriptor,
-) -> ast::Method {
-    let name = descriptor.real_name.to_camel_case();
-    let return_ty = map_descriptor_to_idiomatic_type(&descriptor.return_ty);
-    let args = descriptor
-        .arguments
-        .iter()
-        .map(|arg| ast::MethodArgument {
-            name: ast::Ident(arg.name.to_mixed_case()),
-            ty: map_descriptor_to_idiomatic_type(&arg.ty),
-        })
-        .collect();
-
-    let mut body = Vec::<Box<dyn ast::AstNode>>::new();
-
-    let mut transformed_args = Vec::new();
-    for arg in &descriptor.arguments {
-        match &arg.ty {
-            core::BindgenTypeDescriptor::Slice { elem_type } => {
-                let elem_type = map_descriptor_to_thunk_type(&elem_type);
-
-                let raw_name = arg.name.to_mixed_case();
-                let transformed_name = format!("{}_transformed", raw_name);
-                transformed_args.push(ast::Ident::new(&transformed_name));
-
-                body.push(Box::new(ast::Statement {
-                    expr: format!("SliceAbi {}", transformed_name),
-                }));
-
-                body.push(Box::new(ast::FixedAssignment {
-                    assignment_expr: format!("{}* p = &{}[0]", elem_type, raw_name),
-                    children: vec![
-                        Box::new(ast::BlockComment {
-                            text: vec![
-                                "This is a bug, the rest of this method should be in this fixed block.".to_string(),
-                                "Without this, the GC could move the array while Rust has a pointer to it.".to_string(),
-                            ]
-                        }),
-                        Box::new(ast::Statement {
-                            expr: format!("{}.Ptr = (IntPtr) p", transformed_name)
-                        })
-                    ],
-                }));
-
-                body.push(Box::new(ast::Statement {
-                    expr: format!("{}.Len = (UInt64) {}.Length", transformed_name, raw_name),
-                }));
-            }
-
-            // If not a slice, no transform needed
-            _ => transformed_args.push(ast::Ident(arg.name.to_mixed_case())),
-        }
-    }
-
-    let final_invocation = ast::MethodInvocation {
-        target: None,
-        method_name: ast::Ident::new(&descriptor.thunk_name),
-        args: transformed_args,
-    };
-
-    if descriptor.return_ty == core::BindgenTypeDescriptor::Void {
-        body.push(Box::new(final_invocation));
-    } else {
-        body.push(Box::new(ast::ReturnStatement {
-            value: Some(Box::new(final_invocation)),
-        }));
-    }
-
-    ast::Method {
-        attributes: Vec::new(),
-        is_public: true,
-        is_static: true,
-        is_extern: false,
-        is_unsafe: true,
-        name,
-        return_ty,
-        args,
-        body: Some(body),
-    }
-}
-
 struct CodegenInfo {
     /// Raw descriptor data extracted from the binary
     data: BindgenData,
@@ -799,15 +785,12 @@ impl CodegenInfo {
     }
 
     fn form_ast(&self) -> ast::Root {
-        let mut methods = Vec::new();
-
-        for descriptor in &self.data.descriptors {
-            methods.push(func_descriptor_to_imported_method(
-                &self.lib_name,
-                &descriptor,
-            ));
-            methods.push(func_descriptor_to_idiomatic_wrapper(&descriptor));
-        }
+        let methods = self.data.descriptors.iter()
+            .map(|descriptor| BindingMethod::new(&self.lib_name, descriptor))
+            .collect::<Result<Vec<_>, _>>().expect("Failed to process method")
+            .iter()
+            .flat_map(|bmethod| bmethod.to_ast_methods())
+            .collect();
 
         ast::Root {
             file_comment: Some(ast::BlockComment {

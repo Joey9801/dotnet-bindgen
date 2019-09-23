@@ -129,7 +129,7 @@ pub struct Scope {
 impl AstNode for Scope {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_ln!(f, &ctx, "{{")?;
-        for child in self.children {
+        for child in &self.children {
             child.render(f, ctx.indented())?;
         }
         render_ln!(f, &ctx, "}}")
@@ -317,18 +317,20 @@ impl AstNode for Attribute {
 }
 
 pub struct Statement {
-    pub expr: String,
+    pub expr: Box<dyn AstNode>,
 }
 
 impl AstNode for Statement {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "{};", self.expr)
+        render_indent(f, &ctx)?;
+        self.expr.render(f, ctx);
+        write!(f, ";\n")
     }
 }
 
 pub struct VariableDeclaration {
-    name: Ident,
-    ty: CSharpType,
+    pub name: Ident,
+    pub ty: CSharpType,
 }
 
 impl AstNode for VariableDeclaration {
@@ -338,52 +340,52 @@ impl AstNode for VariableDeclaration {
 }
 
 pub struct FieldAccess {
-    element: Box<dyn AstNode>,
-    field_name: Ident,
+    pub element: Box<dyn AstNode>,
+    pub field_name: Ident,
 }
 
 impl fmt::Display for FieldAccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
         self.element.render(&mut elem_render_buf, RenderContext::default());
-        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+        let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "({}).{}", rendered_elem, self.field_name)
     }
 }
 
 pub struct IndexAccess {
-    element: Box<dyn AstNode>,
-    index: i32,
+    pub element: Box<dyn AstNode>,
+    pub index: i32,
 }
 
 impl fmt::Display for IndexAccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
         self.element.render(&mut elem_render_buf, RenderContext::default());
-        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+        let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "({})[{}]", rendered_elem, self.index)
     }
 }
 
 pub struct AddressOf {
-    element: Box<dyn AstNode>
+    pub element: Box<dyn AstNode>
 }
 
 impl fmt::Display for AddressOf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
         self.element.render(&mut elem_render_buf, RenderContext::default());
-        let rendered_elem = std::str::from_utf8_unchecked(&elem_render_buf);
+        let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "&({})", rendered_elem)
     }
 }
 
 pub struct Assignment {
-    lhs: Box<dyn AstNode>,
-    rhs: Box<dyn AstNode>,
+    pub lhs: Box<dyn AstNode>,
+    pub rhs: Box<dyn AstNode>,
 }
 
 impl AstNode for Assignment {
@@ -395,20 +397,18 @@ impl AstNode for Assignment {
 }
 
 pub struct FixedAssignment {
-    pub assignment_expr: String,
-    pub children: Vec<Box<dyn AstNode>>,
+    pub ty: CSharpType,
+    pub id: Ident,
+    pub rhs: Box<dyn AstNode>,
 }
 
 impl AstNode for FixedAssignment {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_ln!(f, &ctx, "fixed ({})", self.assignment_expr)?;
-        render_ln!(f, &ctx, "{{")?;
+        render_indent(f, &ctx);
 
-        for node in &self.children {
-            node.render(f, ctx.indented())?;
-        }
-
-        render_ln!(f, &ctx, "}}")
+        write!(f, "fixed ({} {} = ", self.ty, self.id)?;
+        self.rhs.render(f, ctx)?;
+        write!(f, ")\n")
     }
 }
 
