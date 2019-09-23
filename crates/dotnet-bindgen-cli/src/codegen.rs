@@ -207,11 +207,15 @@ impl BindingMethodArgument {
                                     element: Box::new(BodyElement::Ident(0.into())),
                                     field_name: "Len".to_string(),
                                 }),
-                                rhs: Box::new(BodyElement::FieldAccess {
-                                    element: source_ident.clone(),
-                                    field_name: "Length".to_string(),
-                                }),
+                                rhs: Box::new(BodyElement::Cast {
+                                    ty: ast::CSharpType::UInt64,
+                                    element: Box::new(BodyElement::FieldAccess {
+                                        element: source_ident.clone(),
+                                        field_name: "Length".to_string(),
+                                    }),
+                                })
                             },
+                            BodyElement::Unsafe,
                             BodyElement::FixedAssignment {
                                 ty: ast::CSharpType::Ptr {
                                     target: Box::new((*elem_type.clone()).into()),
@@ -229,7 +233,10 @@ impl BindingMethodArgument {
                                     element: Box::new(BodyElement::Ident(0.into())),
                                     field_name: "Ptr".to_string(),
                                 }),
-                                rhs: Box::new(BodyElement::Ident(1.into())),
+                                rhs: Box::new(BodyElement::Cast {
+                                    ty: ast::CSharpType::intptr(),
+                                    element: Box::new(BodyElement::Ident(1.into())),
+                                }),
                             },
                         ]
                     }
@@ -289,7 +296,7 @@ impl AbstractIdent {
                 name.to_string()
             ),
             AbstractIdent::Generated(idx) => ast::Ident(
-                format!("__bindgen_var_{}", idx)
+                format!("_gen{}", idx)
             ),
         }
     }
@@ -323,6 +330,11 @@ enum BodyElement {
     AddressOf {
         element: Box<BodyElement>,
     },
+    /// Casts a value to a given type
+    Cast {
+        ty: ast::CSharpType,
+        element: Box<BodyElement>,
+    },
     Assignment {
         lhs: Box<BodyElement>,
         rhs: Box<BodyElement>,
@@ -333,6 +345,8 @@ enum BodyElement {
         id: AbstractIdent,
         rhs: Box<BodyElement>,
     },
+    /// Wraps all elements after it in the rendered AST in an unsafe block
+    Unsafe,
 }
 
 impl BodyElement {
@@ -351,6 +365,7 @@ impl BodyElement {
             } => element.max_abstract_id(),
             BodyElement::IndexAccess { element, index: _ } => element.max_abstract_id(),
             BodyElement::AddressOf { element } => element.max_abstract_id(),
+            BodyElement::Cast { ty: _, element } => element.max_abstract_id(),
             BodyElement::Assignment { lhs, rhs } => {
                 [lhs, rhs].iter().filter_map(|a| a.max_abstract_id()).max()
             }
@@ -360,7 +375,8 @@ impl BodyElement {
                     .filter(|a| a.is_some())
                     .map(|a| a.unwrap())
                     .max()
-            }
+            },
+            BodyElement::Unsafe => None,
         }
     }
 
@@ -384,6 +400,7 @@ impl BodyElement {
                 element.apply_abstract_id_offset(offset)
             }
             BodyElement::AddressOf { element } => element.apply_abstract_id_offset(offset),
+            BodyElement::Cast { ty: _, element } => element.apply_abstract_id_offset(offset),
             BodyElement::Assignment { lhs, rhs } => {
                 lhs.apply_abstract_id_offset(offset);
                 rhs.apply_abstract_id_offset(offset);
@@ -391,7 +408,8 @@ impl BodyElement {
             BodyElement::FixedAssignment { ty: _, id, rhs } => {
                 id.apply_abstract_id_offset(offset);
                 rhs.apply_abstract_id_offset(offset);
-            }
+            },
+            BodyElement::Unsafe => (),
         }
     }
 
@@ -403,8 +421,10 @@ impl BodyElement {
             BodyElement::FieldAccess {..} => false,
             BodyElement::IndexAccess {..} => false,
             BodyElement::AddressOf {..} => false,
+            BodyElement::Cast {..} => false,
             BodyElement::Assignment {..} => false,
             BodyElement::FixedAssignment {..} => true,
+            BodyElement::Unsafe => true,
         }
     }
 
@@ -416,8 +436,10 @@ impl BodyElement {
             BodyElement::FieldAccess {..} => false,
             BodyElement::IndexAccess {..} => false,
             BodyElement::AddressOf {..} => false,
+            BodyElement::Cast {..} => false,
             BodyElement::Assignment {..} => false,
             BodyElement::FixedAssignment {..} => true,
+            BodyElement::Unsafe => true,
         }
     }
 
@@ -459,6 +481,12 @@ impl BodyElement {
                     element: element.to_ast_node(),
                 }
             ),
+            BodyElement::Cast { ty, element } => Box::new(
+                ast::Cast {
+                    ty: ty.clone(),
+                    element: element.to_ast_node(),
+                }
+            ),
             BodyElement::Assignment { lhs, rhs } => Box::new(
                 ast::Assignment {
                     lhs: lhs.to_ast_node(),
@@ -471,6 +499,9 @@ impl BodyElement {
                     id: id.to_concrete_ident(),
                     rhs: rhs.to_ast_node(),
                 }
+            ),
+            BodyElement::Unsafe => Box::new(
+                ast::UnsafeStatement {}
             )
         }
     }
@@ -718,7 +749,7 @@ impl BindingMethod {
             is_public: true,
             is_static: true,
             is_extern: false,
-            is_unsafe: true,
+            is_unsafe: false,
             name,
             return_ty,
             args,

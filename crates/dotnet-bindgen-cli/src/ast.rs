@@ -136,6 +136,14 @@ impl AstNode for Scope {
     }
 }
 
+pub struct UnsafeStatement {}
+
+impl AstNode for UnsafeStatement {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        render_ln!(f, &ctx, "unsafe")
+    }
+}
+
 pub struct Namespace {
     pub name: String,
     pub children: Vec<Box<dyn AstNode>>,
@@ -189,6 +197,12 @@ pub enum CSharpType {
     Struct {
         name: Ident,
     },
+}
+
+impl CSharpType {
+    pub fn intptr() -> Self {
+        Self::Struct { name: "IntPtr".into() }
+    }
 }
 
 impl fmt::Display for CSharpType {
@@ -380,6 +394,21 @@ impl fmt::Display for AddressOf {
         let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "&({})", rendered_elem)
+    }
+}
+
+pub struct Cast {
+    pub ty: CSharpType,
+    pub element: Box<dyn AstNode>,
+}
+
+impl fmt::Display for Cast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut elem_render_buf: Vec<u8> = Vec::new();
+        self.element.render(&mut elem_render_buf, RenderContext::default());
+        let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
+
+        write!(f, "({})({})", self.ty, rendered_elem)
     }
 }
 
