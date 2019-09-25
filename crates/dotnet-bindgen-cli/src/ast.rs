@@ -246,18 +246,14 @@ impl fmt::Display for Ident {
 }
 
 pub enum LiteralValue {
-    Integer(i64),
     QuotedString(String),
-    Boolean(bool),
     EnumValue(String, String),
 }
 
 impl fmt::Display for LiteralValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LiteralValue::Integer(val) => write!(f, "{}", val),
             LiteralValue::QuotedString(val) => write!(f, "\"{}\"", val),
-            LiteralValue::Boolean(val) => write!(f, "{}", val),
             LiteralValue::EnumValue(e, v) => write!(f, "{}.{}", e, v),
         }
     }
@@ -337,7 +333,7 @@ pub struct Statement {
 impl AstNode for Statement {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         render_indent(f, &ctx)?;
-        self.expr.render(f, ctx);
+        self.expr.render(f, ctx)?;
         write!(f, ";\n")
     }
 }
@@ -361,7 +357,8 @@ pub struct FieldAccess {
 impl fmt::Display for FieldAccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
-        self.element.render(&mut elem_render_buf, RenderContext::default());
+        self.element.render(&mut elem_render_buf, RenderContext::default())
+            .map_err(|_| fmt::Error)?;
         let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "({}).{}", rendered_elem, self.field_name)
@@ -376,7 +373,8 @@ pub struct IndexAccess {
 impl fmt::Display for IndexAccess {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
-        self.element.render(&mut elem_render_buf, RenderContext::default());
+        self.element.render(&mut elem_render_buf, RenderContext::default())
+            .map_err(|_| fmt::Error)?;
         let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "({})[{}]", rendered_elem, self.index)
@@ -390,7 +388,8 @@ pub struct AddressOf {
 impl fmt::Display for AddressOf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
-        self.element.render(&mut elem_render_buf, RenderContext::default());
+        self.element.render(&mut elem_render_buf, RenderContext::default())
+            .map_err(|_| fmt::Error)?;
         let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "&({})", rendered_elem)
@@ -405,7 +404,8 @@ pub struct Cast {
 impl fmt::Display for Cast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut elem_render_buf: Vec<u8> = Vec::new();
-        self.element.render(&mut elem_render_buf, RenderContext::default());
+        self.element.render(&mut elem_render_buf, RenderContext::default())
+            .map_err(|_| fmt::Error)?;
         let rendered_elem = std::str::from_utf8(&elem_render_buf).expect("Rendered to invalid utf8!");
 
         write!(f, "({})({})", self.ty, rendered_elem)
@@ -433,7 +433,7 @@ pub struct FixedAssignment {
 
 impl AstNode for FixedAssignment {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
-        render_indent(f, &ctx);
+        render_indent(f, &ctx)?;
 
         write!(f, "fixed ({} {} = ", self.ty, self.id)?;
         self.rhs.render(f, ctx)?;
