@@ -878,7 +878,7 @@ impl CodegenInfo {
                 },
             ],
             children: vec![Box::new(ast::Namespace {
-                name: "Test.Namespace".into(),
+                name: self.lib_name.to_camel_case().into(),
                 children: vec![
                     Box::new(ast::Object {
                         attributes: vec![ast::Attribute::struct_layout("Sequential")],
