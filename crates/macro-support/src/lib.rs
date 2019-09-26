@@ -85,29 +85,53 @@ impl ToTokens for ExportedFunction {
         let real_name_string = real_name.to_string();
         let thunk_name_string = thunk_name.to_string();
 
-        let return_ty = &self.return_ty;
-        (quote! {
-            #[no_mangle]
-            #[link_section = ".joe"]
-            pub extern "C" fn #thunk_name(
-                #(#thunk_args),*
-            ) -> <#return_ty as ::dotnet_bindgen::core::BindgenAbiConvert>::AbiType {
-                #(#arg_conversions)*
-                let ret = #real_name(#(#arg_names),*);
-                <#return_ty as ::dotnet_bindgen::core::BindgenAbiConvert>::to_abi_type(ret)
+        let thunk = match &self.return_ty {
+            Some(ty) => quote!{
+                #[no_mangle]
+                #[link_section = ".joe"]
+                pub extern "C" fn #thunk_name(
+                    #(#thunk_args),*
+                ) -> <#ty as ::dotnet_bindgen::core::BindgenAbiConvert>::AbiType {
+                    #(#arg_conversions)*
+                    let ret = #real_name(#(#arg_names),*);
+                    <#ty as ::dotnet_bindgen::core::BindgenAbiConvert>::to_abi_type(ret)
+                }
+            },
+            None => quote! {
+                #[no_mangle]
+                #[link_section = ".joe"]
+                pub extern "C" fn #thunk_name(#(#thunk_args),*) {
+                    #(#arg_conversions)*
+                    #real_name(#(#arg_names),*);
+                }
             }
+        };
 
+        let return_ty_descriptor_frag = match &self.return_ty {
+            Some(ty) => quote! {
+                <#ty as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe()
+            },
+            None => quote! {
+                ::dotnet_bindgen::core::BindgenTypeDescriptor::Void
+            }
+        };
+
+        let descriptor = quote! {
             #[no_mangle]
             pub fn #descriptor_name() -> ::dotnet_bindgen::core::BindgenFunctionDescriptor {
                 ::dotnet_bindgen::core::BindgenFunctionDescriptor {
                     real_name: #real_name_string.to_string(),
                     thunk_name: #thunk_name_string.to_string(),
                     arguments: vec![#(#arg_descriptors),*],
-                    return_ty: <#return_ty as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe(),
+                    return_ty: #return_ty_descriptor_frag,
                 }
             }
-        })
-        .to_tokens(tokens);
+        };
+
+        (quote! {
+            #thunk
+            #descriptor
+        }).to_tokens(tokens);
     }
 }
 

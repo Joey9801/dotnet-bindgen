@@ -1,15 +1,23 @@
 use dotnet_bindgen::dotnet_bindgen;
 
+
 #[dotnet_bindgen]
-fn demo_function(first_arg: &[i32], second_arg: u64) -> u16 {
-    dbg!(first_arg);
-    dbg!(second_arg);
-    first_arg.len() as u16 + second_arg as u16
+fn i32_return() -> i32 {
+    10
 }
 
 #[dotnet_bindgen]
-fn another_func(a: u8, b: u16) -> i8 {
-    dbg!(a);
-    dbg!(b);
+fn i8_arg(arg: i8) -> i32 {
+    dbg!(arg);
     10
+}
+
+#[dotnet_bindgen]
+fn void_return(arg: i32) {
+    dbg!(arg);
+}
+
+#[dotnet_bindgen]
+fn slice_arg(slice: &[i32]) {
+    dbg!(slice);
 }
