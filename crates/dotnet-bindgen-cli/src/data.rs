@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use goblin::elf::Elf;
 use goblin::Object;
@@ -8,14 +9,14 @@ use dotnet_bindgen_core::*;
 
 #[derive(Debug)]
 pub struct BindgenData {
-    pub source_file: std::path::PathBuf,
+    pub source_file: PathBuf,
     pub descriptors: Vec<BindgenFunctionDescriptor>,
 }
 
 impl BindgenData {
-    fn load_elf(elf: &Elf, source_file: std::path::PathBuf) -> Result<Self, ()> {
+    fn load_elf(elf: &Elf, file_path: &Path) -> Result<Self, ()> {
         let mut descriptors = Vec::new();
-        let lib = libloading::Library::new(&source_file).unwrap();
+        let lib = libloading::Library::new(file_path).unwrap();
         for sym in elf.dynsyms.iter() {
             let name = match elf.dynstrtab.get(sym.st_name) {
                 Some(Ok(s)) => s,
@@ -34,19 +35,26 @@ impl BindgenData {
         }
 
         Ok(Self {
-            source_file,
+            source_file: file_path.to_owned(),
             descriptors,
         })
     }
 
-    pub fn load(file: std::path::PathBuf) -> Result<Self, ()> {
-        let mut fd = File::open(&file).unwrap();
+    /// Sorts the descriptors in this binding data set, to simplify comparisons with other sets.
+    fn sort_descriptors(&mut self) { 
+        // Stable vs. unstable sort should be irrelevant, as the function descriptors real name
+        // must be unique within the binary -> no duplicate keys.
+        self.descriptors.sort_unstable_by_key(|d| d.real_name.clone())
+    }
+
+    pub fn load(file_path: &Path) -> Result<Self, ()> {
+        let mut fd = File::open(file_path).unwrap();
 
         let mut buffer = Vec::new();
         fd.read_to_end(&mut buffer).unwrap();
 
-        let data = match Object::parse(&buffer).unwrap() {
-            Object::Elf(elf) => Self::load_elf(&elf, file).expect("Failed to load elf"),
+        let mut data = match Object::parse(&buffer).unwrap() {
+            Object::Elf(elf) => Self::load_elf(&elf, file_path).expect("Failed to load elf"),
             Object::Unknown(magic) => {
                 println!("unknown magic: {:#x}", magic);
                 return Err(());
@@ -56,6 +64,8 @@ impl BindgenData {
                 return Err(());
             }
         };
+
+        data.sort_descriptors();
 
         Ok(data)
     }

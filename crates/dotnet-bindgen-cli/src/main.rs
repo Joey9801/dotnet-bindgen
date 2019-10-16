@@ -17,7 +17,7 @@ fn main() {
                 .required(true)
                 .long("bin")
                 .value_name("BIN")
-                .help("The path to the binay to process")
+                .help("The path to the binary to process")
                 .takes_value(true),
         )
         .get_matches();
@@ -31,7 +31,7 @@ fn main() {
         .unwrap_or(Path::new("."))
         .join(Path::new("dotnet_bindgen"));
 
-    let data = BindgenData::load(binary_path.clone()).unwrap();
+    let data = BindgenData::load(&binary_path).unwrap();
 
     codegen::create_project(data, generated_poject_dir).unwrap();
 }
