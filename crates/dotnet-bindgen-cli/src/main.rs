@@ -5,6 +5,7 @@ use clap::{App, Arg};
 mod ast;
 mod codegen;
 mod data;
+mod path_ext;
 
 use data::BindgenData;
 
