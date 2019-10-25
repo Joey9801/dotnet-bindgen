@@ -46,7 +46,7 @@ impl<T: FfiStable> BindgenAbiConvert for T {
 /// This representation is written to look very similar to the actual underlying
 /// representation of a slice type, such that the conversion functions are likely
 /// to optimise away to nothing. This has been confirmed on rustc 1.37.0 in release
-/// mode intel 2500k cpu.
+/// mode on an intel 2500k cpu.
 #[repr(C)]
 pub struct SliceAbi<T: FfiStable> {
     ptr: *const T,

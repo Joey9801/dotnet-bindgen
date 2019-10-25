@@ -1,10 +1,11 @@
 use std::convert::{TryFrom, TryInto};
-use std::path::PathBuf;
 
 use heck::{CamelCase, MixedCase};
 
 use crate::ast;
 use crate::data::BindgenData;
+use crate::path_ext::BinBaseName;
+
 use dotnet_bindgen_core as core;
 
 /// A simple binding type requires no conversion to cross the FFI boundary
@@ -785,76 +786,23 @@ impl BindingMethod {
 }
 
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
-struct CodegenInfo {
+struct CodegenInfo<'a> {
     /// Raw descriptor data extracted from the binary
-    data: BindgenData,
+    data: &'a BindgenData,
 
     /// The parsed name of the library. Eg "libbindings_demo.so" -> "bindings_demo".
     ///
     /// It should be sufficient to use this string as the first argument to a DllImportAttribute.
     lib_name: String,
-
-    /// The root directory for the outputted project / artifacts
-    output_base: PathBuf,
 }
 
-impl CodegenInfo {
-    fn new(data: BindgenData, output_base: PathBuf) -> Self {
-        let source_ext = data.source_file.extension().and_then(|e| e.to_str());
-        let source_stem = data
-            .source_file
-            .file_stem()
-            .expect("Expect a filename in the path".into())
-            .to_str()
-            .expect("Expec the filename to be valid unicode");
-
-        let lib_name = if source_stem.starts_with("lib") && source_ext == Some("so") {
-            source_stem.chars().skip(3).collect::<String>()
-        } else {
-            source_stem.into()
-        };
-
+impl<'a> CodegenInfo<'a> {
+    fn new(data: &'a BindgenData) -> Self {
+        let lib_name = data.source_file.bin_base_name();
         Self {
             data,
             lib_name,
-            output_base,
         }
-    }
-
-    fn write_all(&self) -> Result<(), std::io::Error> {
-        std::fs::create_dir_all(&self.output_base)?;
-        // TODO: clean the directory?
-
-        self.write_proj_file()?;
-
-        let bindings_filepath = self.output_base.join("Bindings.cs");
-        let mut file = std::fs::File::create(&bindings_filepath).expect(&format!(
-            "Can't open {} for writing",
-            bindings_filepath.to_str().unwrap()
-        ));
-        let ast = self.form_ast();
-        ast.render(&mut file).unwrap();
-
-        Ok(())
-    }
-
-    fn write_proj_file(&self) -> Result<(), std::io::Error> {
-        let csproj_filename = format!("{}Bindings.csproj", self.lib_name.to_camel_case());
-
-        // This definition leaves a load of extraneous whitespace in the generated csproj file.
-        // I don't care, the code here will be read much more often than the generated file.
-        let contents = r#"
-            <Project Sdk="Microsoft.NET.Sdk">
-                <PropertyGroup>
-                    <TargetFramework>netstandard2.0</TargetFramework>
-                    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-                </PropertyGroup>
-            </Project>
-        "#;
-
-        std::fs::write(self.output_base.join(csproj_filename), contents)?;
-
-        Ok(())
     }
 
     fn form_ast(&self) -> ast::Root {
@@ -913,8 +861,7 @@ impl CodegenInfo {
     }
 }
 
-pub fn create_project(data: crate::data::BindgenData, project_dir: PathBuf) -> Result<(), ()> {
-    let info = CodegenInfo::new(data, project_dir);
-    info.write_all().unwrap();
-    Ok(())
+pub fn form_ast_from_data(data: &BindgenData) -> ast::Root {
+    let info = CodegenInfo::new(data);
+    info.form_ast()
 }
