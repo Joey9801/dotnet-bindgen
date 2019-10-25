@@ -3,6 +3,8 @@ use std::path::Path;
 use clap::{App, Arg};
 
 mod ast;
+mod platform;
+mod csproj;
 mod codegen;
 mod data;
 mod path_ext;
