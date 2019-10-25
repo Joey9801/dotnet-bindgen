@@ -187,7 +187,7 @@ impl BindingMethodArgument {
                             self.cs_name.to_string(),
                         )));
 
-                        // TODO: The following is horrendous - replacing with a builer might help.
+                        // TODO: The following is horrendous - replacing with a builder might help.
                         // Eg, something like:
                         //     let elements = ArgTransformFragmentBuilder::new()
                         //        .declare_struct(0.into(), "SliceAbi")

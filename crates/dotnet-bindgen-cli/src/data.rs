@@ -7,14 +7,14 @@ use goblin::Object;
 
 use dotnet_bindgen_core::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BindgenData {
     pub source_file: PathBuf,
     pub descriptors: Vec<BindgenFunctionDescriptor>,
 }
 
 impl BindgenData {
-    fn load_elf(elf: &Elf, file_path: &Path) -> Result<Self, ()> {
+    fn load_elf(elf: &Elf, file_path: &Path) -> Result<Self, &'static str> {
         let mut descriptors = Vec::new();
         let lib = libloading::Library::new(file_path).unwrap();
         for sym in elf.dynsyms.iter() {
@@ -47,23 +47,20 @@ impl BindgenData {
         self.descriptors.sort_unstable_by_key(|d| d.real_name.clone())
     }
 
-    pub fn load(file_path: &Path) -> Result<Self, ()> {
+    pub fn load(file_path: &Path) -> Result<Self, &'static str> {
         let mut fd = File::open(file_path).unwrap();
 
         let mut buffer = Vec::new();
         fd.read_to_end(&mut buffer).unwrap();
 
         let mut data = match Object::parse(&buffer).unwrap() {
-            Object::Elf(elf) => Self::load_elf(&elf, file_path).expect("Failed to load elf"),
+            Object::Elf(elf) => Self::load_elf(&elf, file_path),
             Object::Unknown(magic) => {
                 println!("unknown magic: {:#x}", magic);
-                return Err(());
-            }
-            _ => {
-                println!("Unsupported binary type");
-                return Err(());
-            }
-        };
+                Err("unknown magic number")
+            },
+            _ => Err("Unsupported binary type"),
+        }?;
 
         data.sort_descriptors();
 
