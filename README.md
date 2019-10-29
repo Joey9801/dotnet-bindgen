@@ -111,7 +111,7 @@ namespace DotnetBindgenDemo
         public UInt64 Len;
     }
 
-    public static class TopLevelFunctinos
+    public static class TopLevelFunctions
     {
         [DllImport("dotnet_bindgen_demo", EntryPoint = "__bindgen_thunk_sum_numbers")]
         private static extern Int32 __bindgen_thunk_sum_numbers(SliceAbi numbers);
