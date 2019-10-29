@@ -851,7 +851,7 @@ impl<'a> CodegenInfo<'a> {
                         attributes: Vec::new(),
                         object_type: ast::ObjectType::Class,
                         is_static: true,
-                        name: "Imports".into(),
+                        name: "TopLevelFunctinos".into(),
                         methods,
                         fields: Vec::new(),
                     }),
