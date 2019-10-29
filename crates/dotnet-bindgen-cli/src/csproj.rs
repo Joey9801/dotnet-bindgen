@@ -33,10 +33,10 @@ impl NativeBinary {
         let filename = self.filename();
 
         format!(r#"
-            <Content Include="{}" Link="{}" PackagePath="runtimes/{}/native/{}">
-                <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            </Content>
-        "#,
+        <Content Include="{}" Link="{}" PackagePath="runtimes/{}/native/{}">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+"#,
         filepath,
         filename,
         self.platform.to_dotnet_rid_string(),
@@ -69,13 +69,13 @@ impl NativeBinarySet {
     }
 
     fn render_proj_xml(&self) -> String {
-        let mut xml_str = format!(r#"<ItemGroup Label = "{} native libs">"#, self.base_name);
+        let mut xml_str = format!(r#"    <ItemGroup Label = "{} native libs">"#, self.base_name);
 
         for bin in &self.binaries {
             xml_str.push_str(&bin.render_proj_xml());
         }
 
-        xml_str.push_str("</ItemGroup>");
+        xml_str.push_str("    </ItemGroup>");
 
         xml_str
     }
@@ -89,14 +89,14 @@ pub struct ProjFile {
 
 impl ProjFile {
     pub fn render_proj_xml(&self) -> String {
-        format!(r#"
-<Project Sdk="Microsoft.NET.Sdk">
+        format!(r#"<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>{}</TargetFramework>
         <AllowUnsafeBlocks>{}</AllowUnsafeBlocks>
     </PropertyGroup>
 {}
-</Project>"#,
+</Project>
+"#,
         self.target_framework,
         if self.allow_unsafe { "true" } else { "false" },
         self.binary_set.render_proj_xml())
