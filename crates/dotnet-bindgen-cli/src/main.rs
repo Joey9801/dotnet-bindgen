@@ -12,6 +12,7 @@ mod path_ext;
 
 use data::BindgenData;
 use path_ext::BinBaseName;
+use platform::NativePlatform;
 
 struct SourceBinarySpec {
     platform: platform::NativePlatform,
@@ -21,6 +22,33 @@ struct SourceBinarySpec {
 }
 
 impl SourceBinarySpec {
+    /// Attempts to create a SourceBinarySpec from a command line argument string
+    /// The string may be of the form:  
+    ///     path/to/binary.so
+    /// or
+    ///     nativePlatform:path/to/binary.so
+    /// 
+    /// Where the platform of the binary is omitted, the platform this tool is currently running on is assumed.
+    fn from_bin_arg(arg: &str) -> Result<Self, &'static str> {
+        let platform;
+        let binary_path;
+
+        let parts = arg.splitn(2, ':').collect::<Vec<_>>();
+        if parts.len() == 1 {
+            platform = NativePlatform::host_platform();
+            binary_path = parts[0];
+        } else {
+            platform = parts[0].parse()?;
+            binary_path = parts[1];
+        }
+
+        let binary_path = Path::new(binary_path)
+            .canonicalize()
+            .map_err(|_| "Failed to canonicalize a binary path - do they all exist?")?;
+
+        Self::new(platform, &binary_path)
+    }
+
     fn new(platform: platform::NativePlatform, bin_path: &Path) -> Result<Self, &'static str> {
         let bin_path = bin_path.to_owned();
         let base_name = bin_path.bin_base_name();
@@ -129,29 +157,23 @@ fn main() -> Result<(), &'static str> {
         .arg(Arg::with_name("source-output-dir")
             .required(true)
             .long("source-output-dir")
-            .value_name("DIR")
+            .value_name("Dir")
             .help(r#"The directory the generated bindings are written to.
-            NB: This directory must be empty!"#)
+    NB: This directory must be empty!"#)
             .takes_value(true))
         .arg(Arg::with_name("bin")
             .required(true)
             .long("bin")
-            .value_name("BIN")
+            .value_name("Bin or Plat:Bin")
             .help("The path to the binary to process")
             .takes_value(true))
         .get_matches();
 
-    // Safe to unwrap because --bin is a required arg
-    let binary_path = Path::new(matches.value_of("bin").unwrap())
-        .canonicalize()
-        .map_err(|_| "Failed to canonicalize binary path")?;
+    let source_binaries = vec![
+        SourceBinarySpec::from_bin_arg(matches.value_of("bin").unwrap())?,
+    ];
 
     let source_output_dir = Path::new(matches.value_of("source-output-dir").unwrap());
-
-    // TODO: actually parse out some real specs from the command line args
-    let source_binaries = vec![
-        SourceBinarySpec::new(platform::NativePlatform::LinuxX64, &binary_path)?,
-    ];
 
     generate_bindings(source_binaries, &source_output_dir)?;
 
