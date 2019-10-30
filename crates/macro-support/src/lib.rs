@@ -88,7 +88,6 @@ impl ToTokens for ExportedFunction {
         let thunk = match &self.return_ty {
             Some(ty) => quote!{
                 #[no_mangle]
-                #[link_section = ".joe"]
                 pub extern "C" fn #thunk_name(
                     #(#thunk_args),*
                 ) -> <#ty as ::dotnet_bindgen::core::BindgenAbiConvert>::AbiType {
@@ -99,7 +98,6 @@ impl ToTokens for ExportedFunction {
             },
             None => quote! {
                 #[no_mangle]
-                #[link_section = ".joe"]
                 pub extern "C" fn #thunk_name(#(#thunk_args),*) {
                     #(#arg_conversions)*
                     #real_name(#(#arg_names),*);
