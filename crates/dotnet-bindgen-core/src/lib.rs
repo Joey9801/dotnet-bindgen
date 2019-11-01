@@ -80,6 +80,7 @@ pub enum BindgenTypeDescriptor {
     Slice {
         elem_type: Box<BindgenTypeDescriptor>,
     },
+    Struct(BindgenStructDescriptor),
 }
 
 #[repr(C)]
@@ -101,6 +102,35 @@ pub struct BindgenFunctionDescriptor {
     pub arguments: Vec<BindgenFunctionArgumentDescriptor>,
     pub return_ty: BindgenTypeDescriptor,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindgenStructFieldDescriptor {
+    /// The name as it appears in the original struct definition
+    pub name: String,
+
+    /// The type of the field being described
+    pub ty: BindgenTypeDescriptor,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindgenStructDescriptor {
+    /// The original name of the struct that received the #[dotnet_bindgen] attribute
+    pub name: String,
+
+    /// An ordered set of the fields that appear in this struct.
+    pub fields: Vec<BindgenStructFieldDescriptor>
+}
+
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindgenExportDescriptor {
+    Function(BindgenFunctionDescriptor),
+    Struct(BindgenStructDescriptor),
+}
+
 
 /// Trait to inform the generator of resolved types
 ///
