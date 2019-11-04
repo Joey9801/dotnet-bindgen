@@ -43,11 +43,6 @@ impl std::fmt::Debug for ExportedFunction {
     }
 }
 
-#[derive(Debug)]
-enum Export {
-    Func(ExportedFunction),
-}
-
 impl ToTokens for ExportedFunction {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let mut thunk_args = Vec::new();
@@ -116,13 +111,15 @@ impl ToTokens for ExportedFunction {
 
         let descriptor = quote! {
             #[no_mangle]
-            pub fn #descriptor_name() -> ::dotnet_bindgen::core::BindgenFunctionDescriptor {
-                ::dotnet_bindgen::core::BindgenFunctionDescriptor {
-                    real_name: #real_name_string.to_string(),
-                    thunk_name: #thunk_name_string.to_string(),
-                    arguments: vec![#(#arg_descriptors),*],
-                    return_ty: #return_ty_descriptor_frag,
-                }
+            pub fn #descriptor_name() -> ::dotnet_bindgen::core::BindgenExportDescriptor {
+                ::dotnet_bindgen::core::BindgenExportDescriptor::Function(
+                    ::dotnet_bindgen::core::BindgenFunctionDescriptor {
+                        real_name: #real_name_string.to_string(),
+                        thunk_name: #thunk_name_string.to_string(),
+                        arguments: vec![#(#arg_descriptors),*],
+                        return_ty: #return_ty_descriptor_frag,
+                    }
+                )
             }
         };
 
@@ -131,6 +128,11 @@ impl ToTokens for ExportedFunction {
             #descriptor
         }).to_tokens(tokens);
     }
+}
+
+#[derive(Debug)]
+enum Export {
+    Func(ExportedFunction),
 }
 
 impl ToTokens for Export {

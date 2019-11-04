@@ -10,7 +10,7 @@ use dotnet_bindgen_core::*;
 #[derive(Clone, Debug)]
 pub struct BindgenData {
     pub source_file: PathBuf,
-    pub descriptors: Vec<BindgenFunctionDescriptor>,
+    pub descriptors: Vec<BindgenExportDescriptor>,
 }
 
 impl BindgenData {
@@ -28,7 +28,7 @@ impl BindgenData {
             }
 
             unsafe {
-                let descriptor_func: libloading::Symbol<unsafe fn() -> BindgenFunctionDescriptor> =
+                let descriptor_func: libloading::Symbol<unsafe fn() -> BindgenExportDescriptor> =
                     lib.get(name.as_bytes()).unwrap();
                 descriptors.push(descriptor_func());
             }
@@ -42,9 +42,10 @@ impl BindgenData {
 
     /// Sorts the descriptors in this binding data set, to simplify comparisons with other sets.
     fn sort_descriptors(&mut self) { 
-        // Stable vs. unstable sort should be irrelevant, as the function descriptors real name
-        // must be unique within the binary -> no duplicate keys.
-        self.descriptors.sort_unstable_by_key(|d| d.real_name.clone())
+        self.descriptors.sort_by_cached_key(|d| match d {
+            BindgenExportDescriptor::Function(f) => f.real_name.clone(),
+            BindgenExportDescriptor::Struct(s) => s.name.clone(),
+        });
     }
 
     pub fn load(file_path: &Path) -> Result<Self, &'static str> {

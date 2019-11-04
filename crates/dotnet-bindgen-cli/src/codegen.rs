@@ -807,6 +807,10 @@ impl<'a> CodegenInfo<'a> {
 
     fn form_ast(&self) -> ast::Root {
         let methods = self.data.descriptors.iter()
+            .filter_map(|descriptor| match descriptor {
+                core::BindgenExportDescriptor::Function(f) => Some(f),
+                _ => None
+            })
             .map(|descriptor| BindingMethod::new(&self.lib_name, descriptor))
             .collect::<Result<Vec<_>, _>>().expect("Failed to process method")
             .iter()
