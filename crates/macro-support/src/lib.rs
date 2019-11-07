@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
+use syn::spanned::Spanned;
 
 mod error;
 pub use crate::error::Diagnostic;
@@ -130,15 +131,101 @@ impl ToTokens for ExportedFunction {
     }
 }
 
+struct ExportedStructField {
+    name: proc_macro2::Ident,
+    ty: syn::Type,
+    span: proc_macro2::Span,
+}
+
+impl std::fmt::Debug for ExportedStructField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ty_string = format!("syn::Type({})", self.ty.to_token_stream().to_string());
+        write!(f, "ExportedStructField {{ name: {}, ty: {} }}", self.name, ty_string)
+    }
+}
+
+struct ExportedStruct {
+    name: proc_macro2::Ident,
+    fields: Vec<ExportedStructField>,
+    span: proc_macro2::Span,
+}
+
+impl std::fmt::Debug for ExportedStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ExportedStruct {{ name: {}, fields: {:?} }}", self.name, self.fields)
+    }
+}
+
+impl ExportedStruct {
+    /// For each member, produces an item of the form
+    ///     `struct Assert3 where String: FfiStable`
+    /// to fail compilation with an appropriate error message with an appropriate span when the
+    /// exported struct can not be FfiStable
+    fn ffi_stable_member_assertions(&self) -> TokenStream {
+        let mut assertions = Vec::new();
+        for field in &self.fields {
+            let assert_struct_ident = format_ident!("_AssertFfiStable_{}_{}", self.name, field.name);
+            let ty = &field.ty;
+            let ty_span = ty.span();
+            assertions.push(quote_spanned!{ty_span=>
+                #[allow(non_camel_case_types)]
+                struct #assert_struct_ident where #ty: ::dotnet_bindgen::core::FfiStable {}
+            })
+        }
+
+        quote!{#(
+            #assertions
+        )*}
+    }
+
+    /// Conditionally implements FfiStable for this struct, if all its underlying members are FfiStable.
+    fn conditional_ffi_stable_impl(&self) -> TokenStream {
+        let this_ty = &self.name;
+
+        let mut ffi_stable_impl = quote_spanned!{self.span=>
+            impl ::dotnet_bindgen::core::FfiStable for #this_ty
+            where
+        };
+        for field in &self.fields {
+            let ty = &field.ty;
+            ffi_stable_impl = quote_spanned!{field.span=>
+                #ffi_stable_impl #ty: ::dotnet_bindgen::core::FfiStable,
+            }
+        }
+
+        quote_spanned!{self.span=>
+            #ffi_stable_impl {}
+        }
+    }
+}
+
+impl ToTokens for ExportedStruct {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let assertions = self.ffi_stable_member_assertions();
+        let ffi_stable_impl = self.conditional_ffi_stable_impl();
+
+        // TODO:
+        let descriptor_func = TokenStream::new();
+
+        (quote! {
+            #assertions
+            #ffi_stable_impl
+            #descriptor_func
+        }).to_tokens(tokens);
+    }
+}
+
 #[derive(Debug)]
 enum Export {
     Func(ExportedFunction),
+    Struct(ExportedStruct),
 }
 
 impl ToTokens for Export {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
             Export::Func(f) => f.to_tokens(tokens),
+            Export::Struct(s) => s.to_tokens(tokens),
         };
     }
 }
@@ -178,6 +265,7 @@ impl MacroParse for syn::Item {
     fn macro_parse(&self, program: &mut Program) -> Result<(), Diagnostic> {
         match self {
             syn::Item::Fn(f) => f.macro_parse(program),
+            syn::Item::Struct(s) => s.macro_parse(program),
             _ => Err(Diagnostic::spanned_error(
                 self,
                 "Can't generate binding metadata for this",
@@ -217,6 +305,49 @@ impl MacroParse for syn::ItemFn {
 
         Ok(())
     }
+}
+
+impl MacroParse for syn::ItemStruct {
+    fn macro_parse(&self, program: &mut Program) -> Result<(), Diagnostic> {
+        let name = self.ident.clone();
+
+        let fields = match &self.fields {
+            syn::Fields::Named(n) => parse_named_fields(&n),
+            _ => Err(Diagnostic::spanned_error(
+                self,
+                "Can only structs with named fields"
+            ))
+        }?;
+
+        let span = self.ident.span();
+
+        program.exports.push(Export::Struct(ExportedStruct {
+            name,
+            fields,
+            span,
+        }));
+
+        Ok(())
+    }
+}
+
+fn parse_named_fields(fields: &syn::FieldsNamed) -> Result<Vec<ExportedStructField>, Diagnostic> {
+    let mut fields_parsed = Vec::new();
+    for field in fields.named.iter() {
+        let name = field.ident.as_ref()
+            .expect("Expected syn::FieldNamed to contain fields with names")
+            .clone();
+        let ty = field.ty.clone();
+        let span = fields.span();
+
+        fields_parsed.push(ExportedStructField {
+            name,
+            ty,
+            span,
+        })
+    }
+
+    Ok(fields_parsed)
 }
 
 fn parse_pat(pat: &syn::Pat) -> Result<proc_macro2::Ident, Diagnostic> {
