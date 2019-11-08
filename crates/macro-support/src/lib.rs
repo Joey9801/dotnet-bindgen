@@ -173,9 +173,7 @@ impl ExportedStruct {
             })
         }
 
-        quote!{#(
-            #assertions
-        )*}
+        quote!{#(#assertions)*}
     }
 
     /// Conditionally implements FfiStable for this struct, if all its underlying members are FfiStable.
@@ -197,19 +195,74 @@ impl ExportedStruct {
             #ffi_stable_impl {}
         }
     }
+
+    /// A block that implements BindgenTypeDescribe for this struct
+    fn descriptor_impl(&self) -> TokenStream {
+        let name = &self.name;
+        let name_string = name.to_string();
+
+        let mut field_descriptors = Vec::new();
+
+        for field in &self.fields {
+            let field_name_string = field.name.to_string();
+            let field_ty = &field.ty;
+
+            field_descriptors.push(quote!{
+                ::dotnet_bindgen::core::BindgenStructFieldDescriptor {
+                    name: #field_name_string.to_string(),
+                    ty: <#field_ty as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe(),
+                }
+            })
+        }
+
+        quote!{
+            impl ::dotnet_bindgen::core::BindgenTypeDescribe for #name {
+                fn describe() -> ::dotnet_bindgen::core::BindgenTypeDescriptor {
+                    ::dotnet_bindgen::core::BindgenTypeDescriptor::Struct(
+                        ::dotnet_bindgen::core::BindgenStructDescriptor {
+                            name: #name_string.to_string(),
+                            fields: vec![
+                                #(#field_descriptors),*
+                            ]
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    /// A #[no_mangle]'d function which returns a BindgenExportDescriptor::Struct
+    fn descriptor_func(&self) -> TokenStream {
+        let struct_name = &self.name;
+        let descriptor_name = format_ident!("{}_struct_{}", BINDGEN_DESCRIBE_PREFIX, self.name);
+
+        quote!{
+            #[no_mangle]
+            #[allow(non_snake_case)]
+            pub fn #descriptor_name() -> ::dotnet_bindgen::core::BindgenExportDescriptor {
+                let type_desc = <#struct_name as ::dotnet_bindgen::core::BindgenTypeDescribe>::describe();
+                ::dotnet_bindgen::core::BindgenExportDescriptor::Struct(
+                    match type_desc {
+                        ::dotnet_bindgen::core::BindgenTypeDescriptor::Struct(s) => s,
+                        _ => unreachable!(),
+                    }
+                )
+            }
+        }
+    }
 }
 
 impl ToTokens for ExportedStruct {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let assertions = self.ffi_stable_member_assertions();
         let ffi_stable_impl = self.conditional_ffi_stable_impl();
-
-        // TODO:
-        let descriptor_func = TokenStream::new();
+        let descriptor_impl = self.descriptor_impl();
+        let descriptor_func = self.descriptor_func();
 
         (quote! {
             #assertions
             #ffi_stable_impl
+            #descriptor_impl
             #descriptor_func
         }).to_tokens(tokens);
     }

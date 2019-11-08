@@ -24,7 +24,7 @@ fn slice_arg(slice: &[i32]) {
 
 #[dotnet_bindgen]
 #[derive(Debug)]
-struct SimpleStruct {
+pub struct SimpleStruct {
     field_1: i32,
     field_2: u64,
 }
