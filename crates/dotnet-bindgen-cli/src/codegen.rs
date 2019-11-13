@@ -12,7 +12,7 @@ use dotnet_bindgen_core as core;
 #[derive(Clone, Debug)]
 struct SimpleBindingType {
     /// The original type descriptor extracted from the binary
-    descriptor: core::BindgenTypeDescriptor,
+    descriptor: Option<core::BindgenTypeDescriptor>,
 
     /// The single C# type that is both idiomatic, and suitable for the extern method.
     cs_type: ast::CSharpType,
@@ -63,63 +63,63 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
 
         let converted = match &descriptor {
             Desc::Void => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::Void,
             }),
             Desc::Int {
                 width: 8,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::SByte,
             }),
             Desc::Int {
                 width: 16,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::Int16,
             }),
             Desc::Int {
                 width: 32,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::Int32,
             }),
             Desc::Int {
                 width: 64,
                 signed: true,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::Int64,
             }),
             Desc::Int {
                 width: 8,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::Byte,
             }),
             Desc::Int {
                 width: 16,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::UInt16,
             }),
             Desc::Int {
                 width: 32,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::UInt32,
             }),
             Desc::Int {
                 width: 64,
                 signed: false,
             } => BindingType::Simple(SimpleBindingType {
-                descriptor,
+                descriptor: Some(descriptor),
                 cs_type: CS::UInt64,
             }),
             Desc::Slice { elem_type } => {
@@ -139,8 +139,15 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
                         elem_type: Box::new(elem_type),
                     },
                 })
-            }
-            _ => unreachable!(),
+            },
+            Desc::Struct(s) => {
+                let name = ast::Ident::new(&s.name);
+                BindingType::Simple(SimpleBindingType {
+                    descriptor: Some(descriptor),
+                    cs_type: CS::Struct { name }
+                })
+            },
+            _ => return Err("Unrecognized type"),
         };
 
         Ok(converted)
@@ -785,6 +792,96 @@ impl BindingMethod {
     }
 }
 
+
+struct BindingStructField {
+    /// The name of this field in the generated C# (CamelCase transform rust_name)
+    cs_name: String,
+
+    /// The type of this field. Restricted to simple binding types to make the entire struct FFI stable.
+    ty: SimpleBindingType,
+}
+
+impl BindingStructField {
+    fn new(descriptor: &core::BindgenStructFieldDescriptor) -> Result<Self, &'static str> {
+        let cs_name = descriptor.name.to_camel_case();
+
+        let ty = match descriptor.ty.clone().try_into()? {
+            BindingType::Simple(s) => s,
+            _ => return Err("Can't create bindings for structs with non-ffi-stable fields"),
+        };
+
+        Ok(Self {
+            cs_name,
+            ty,
+        })
+    }
+
+    fn to_ast_field(&self) -> ast::Field {
+        ast::Field {
+            name: self.cs_name.clone(),
+            ty: self.ty.cs_type.clone(),
+        }
+    }
+}
+
+struct BindingStruct {
+    /// The name of the struct in both the bound Rust, and the generated C# (both are CamelCase by convention)
+    name: String,
+
+    /// Ordered set of fields. Repr(C) in Rust should map 1-1 with C# StructLayout.Sequential
+    fields: Vec<BindingStructField>,
+
+    /// Set of methods to grant this struct
+    methods: Vec<BindingMethod>,
+}
+
+impl BindingStruct {
+    fn new(descriptor: &core::BindgenStructDescriptor) -> Result<Self, &'static str> {
+        let fields = descriptor.fields
+            .iter()
+            .map(|f| BindingStructField::new(&f))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let name = descriptor.name.to_string();
+
+        Ok(Self {
+            name,
+            fields,
+            methods: Vec::new(),
+        })
+    }
+
+    fn to_ast_object(&self) -> ast::Object {
+        let is_static = self.fields.len() == 0;
+        let object_type = if is_static {
+            ast::ObjectType::Class
+        } else {
+            ast::ObjectType::Struct
+        };
+
+        let name = self.name.clone();
+
+        let fields = self.fields
+            .iter()
+            .map(|f| f.to_ast_field())
+            .collect();
+
+        let methods = self.methods
+            .iter()
+            .flat_map(|m| m.to_ast_methods())
+            .collect();
+
+        ast::Object {
+            attributes: vec![ast::Attribute::struct_layout("Sequential")],
+            object_type,
+            is_static,
+            name,
+            methods,
+            fields,
+        }
+    }
+}
+
 /// Maps a BindgenTypeDescriptor to the type it appears as in the generated thunk
 struct CodegenInfo<'a> {
     /// Raw descriptor data extracted from the binary
@@ -805,17 +902,59 @@ impl<'a> CodegenInfo<'a> {
         }
     }
 
+    fn slice_abi_obj() -> ast::Object {
+        ast::Object {
+            attributes: vec![ast::Attribute::struct_layout("Sequential")],
+            object_type: ast::ObjectType::Struct,
+            is_static: false,
+            name: "SliceAbi".into(),
+            methods: Vec::new(),
+            fields: vec![
+                ast::Field {
+                    name: "Ptr".to_string(),
+                    ty: ast::CSharpType::Struct {
+                        name: ast::Ident::new("IntPtr"),
+                    },
+                },
+                ast::Field {
+                    name: "Len".to_string(),
+                    ty: ast::CSharpType::UInt64,
+                },
+            ],
+        }
+    }
+
+    fn top_level_methods_obj(methods: &[BindingMethod]) -> ast::Object {
+        ast::Object {
+            attributes: Vec::new(),
+            object_type: ast::ObjectType::Class,
+            is_static: true,
+            name: "TopLevelMethods".into(),
+            methods: methods.iter().flat_map(|m| m.to_ast_methods()).collect(),
+            fields: Vec::new(),
+        }
+    }
+
     fn form_ast(&self) -> ast::Root {
-        let methods = self.data.descriptors.iter()
+        let mut objects = self.data.descriptors.iter()
+            .filter_map(|descriptor| match descriptor {
+                core::BindgenExportDescriptor::Struct(s) => Some(s),
+                _ => None,
+            })
+            .map(|descriptor| BindingStruct::new(descriptor))
+            .map(|s| s.map(|s| Box::new(s.to_ast_object()) as Box<dyn ast::AstNode>))
+            .collect::<Result<Vec<_>, _>>().expect("Failed to process struct");
+
+        let top_level_methods = self.data.descriptors.iter()
             .filter_map(|descriptor| match descriptor {
                 core::BindgenExportDescriptor::Function(f) => Some(f),
                 _ => None
             })
             .map(|descriptor| BindingMethod::new(&self.lib_name, descriptor))
-            .collect::<Result<Vec<_>, _>>().expect("Failed to process method")
-            .iter()
-            .flat_map(|bmethod| bmethod.to_ast_methods())
-            .collect();
+            .collect::<Result<Vec<_>, _>>().expect("Failed to process method");
+
+        objects.push(Box::new(CodegenInfo::slice_abi_obj()) as Box<dyn ast::AstNode>);
+        objects.push(Box::new(CodegenInfo::top_level_methods_obj(&top_level_methods)) as Box<dyn ast::AstNode>);
 
         ast::Root {
             file_comment: Some(ast::BlockComment {
@@ -830,36 +969,8 @@ impl<'a> CodegenInfo<'a> {
                 },
             ],
             children: vec![Box::new(ast::Namespace {
-                name: self.lib_name.to_camel_case().into(),
-                children: vec![
-                    Box::new(ast::Object {
-                        attributes: vec![ast::Attribute::struct_layout("Sequential")],
-                        object_type: ast::ObjectType::Struct,
-                        is_static: false,
-                        name: "SliceAbi".into(),
-                        methods: Vec::new(),
-                        fields: vec![
-                            ast::Field {
-                                name: "Ptr".to_string(),
-                                ty: ast::CSharpType::Struct {
-                                    name: ast::Ident::new("IntPtr"),
-                                },
-                            },
-                            ast::Field {
-                                name: "Len".to_string(),
-                                ty: ast::CSharpType::UInt64,
-                            },
-                        ],
-                    }),
-                    Box::new(ast::Object {
-                        attributes: Vec::new(),
-                        object_type: ast::ObjectType::Class,
-                        is_static: true,
-                        name: "TopLevelFunctions".into(),
-                        methods,
-                        fields: Vec::new(),
-                    }),
-                ],
+                name: format!("{}Bindings", self.lib_name.to_camel_case()),
+                children: objects,
             })],
         }
     }
