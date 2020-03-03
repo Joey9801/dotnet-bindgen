@@ -147,6 +147,11 @@ impl TryFrom<core::BindgenTypeDescriptor> for BindingType {
                     cs_type: CS::Struct { name }
                 })
             },
+            Desc::Bool => BindingType::Complex(ComplexBindingType {
+                descriptor,
+                thunk_type: CS::Byte,
+                idiomatic_type: CS::Bool,
+            }),
             _ => return Err("Unrecognized type"),
         };
 
@@ -185,6 +190,30 @@ impl BindingMethodArgument {
             ),
             BindingType::Complex(complex_ty) => {
                 let elements = match &complex_ty.descriptor {
+                    core::BindgenTypeDescriptor::Bool => {
+                        let source_ident = Box::new(BodyElement::Ident(AbstractIdent::Explicit(
+                            self.cs_name.to_string(),
+                        )));
+
+                        vec![
+                            BodyElement::DeclareLocal {
+                                id: AbstractIdent::Generated(0),
+                                ty: ast::CSharpType::Byte,
+                            },
+                            BodyElement::Assignment {
+                                lhs: Box::new(BodyElement::Ident(0.into())),
+                                rhs: Box::new(BodyElement::TernaryExpression {
+                                    test: source_ident.clone(),
+                                    true_branch: Box::new(
+                                        BodyElement::LiteralValue(LiteralValue::Number(1))
+                                    ),
+                                    false_branch: Box::new(
+                                        BodyElement::LiteralValue(LiteralValue::Number(0))
+                                    ),
+                                })
+                            },
+                        ]
+                    },
                     core::BindgenTypeDescriptor::Slice { elem_type: _ } => {
                         let elem_type = match &complex_ty.idiomatic_type {
                             ast::CSharpType::Array { elem_type } => elem_type.clone(),
@@ -310,6 +339,24 @@ impl AbstractIdent {
     }
 }
 
+#[derive(Clone, Debug)]
+enum BinaryOperation {
+    NotEqual,
+}
+
+impl BinaryOperation {
+    fn sym(&self) -> &'static str {
+        match self {
+            BinaryOperation::NotEqual => "!=",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum LiteralValue {
+    Number(i64),
+}
+
 /// An abstract part of a method body, roughly mapping 1-1 with an ast element.
 #[derive(Clone, Debug)]
 enum BodyElement {
@@ -357,7 +404,20 @@ enum BodyElement {
     Unsafe,
     Return {
         element: Option<Box<BodyElement>>,
-    }
+    },
+    /// A binary expression, eg `a != b`
+    BinaryExpression {
+        lhs: Box<BodyElement>,
+        rhs: Box<BodyElement>,
+        operation: BinaryOperation,
+    },
+    /// A ternary expression, eg `foo ? a : b`
+    TernaryExpression {
+        test: Box<BodyElement>,
+        true_branch: Box<BodyElement>,
+        false_branch: Box<BodyElement>,
+    },
+    LiteralValue(LiteralValue),
 }
 
 impl BodyElement {
@@ -390,6 +450,13 @@ impl BodyElement {
             BodyElement::Unsafe => None,
             BodyElement::Return { element: Some(element) } => element.max_abstract_id(),
             BodyElement::Return { element: None } => None,
+            BodyElement::BinaryExpression { lhs, rhs, operation: _ } => {
+                [lhs, rhs].iter().filter_map(|a| a.max_abstract_id()).max()
+            },
+            BodyElement::TernaryExpression { test, true_branch, false_branch } => {
+                [test, true_branch, false_branch].iter().filter_map(|a| a.max_abstract_id()).max()
+            },
+            BodyElement::LiteralValue {..} => None,
         }
     }
 
@@ -425,6 +492,16 @@ impl BodyElement {
             BodyElement::Unsafe => (),
             BodyElement::Return { element: Some(element) } => element.apply_abstract_id_offset(offset),
             BodyElement::Return { element: None } => (),
+            BodyElement::BinaryExpression { lhs, rhs, operation: _ } => {
+                lhs.apply_abstract_id_offset(offset);
+                rhs.apply_abstract_id_offset(offset);
+            },
+            BodyElement::TernaryExpression { test, true_branch, false_branch } => {
+                test.apply_abstract_id_offset(offset);
+                true_branch.apply_abstract_id_offset(offset);
+                false_branch.apply_abstract_id_offset(offset);
+            },
+            BodyElement::LiteralValue {..} => (),
         }
     }
 
@@ -441,6 +518,9 @@ impl BodyElement {
             BodyElement::FixedAssignment {..} => true,
             BodyElement::Unsafe => true,
             BodyElement::Return{..} => false,
+            BodyElement::BinaryExpression{..} => false,
+            BodyElement::LiteralValue {..} => false,
+            BodyElement::TernaryExpression {..} => false,
         }
     }
 
@@ -457,6 +537,9 @@ impl BodyElement {
             BodyElement::FixedAssignment {..} => true,
             BodyElement::Unsafe => true,
             BodyElement::Return{..} => true,
+            BodyElement::BinaryExpression{..} => false,
+            BodyElement::LiteralValue {..} => false,
+            BodyElement::TernaryExpression {..} => false,
         }
     }
 
@@ -505,9 +588,10 @@ impl BodyElement {
                 }
             ),
             BodyElement::Assignment { lhs, rhs } => Box::new(
-                ast::Assignment {
+                ast::BinaryExpression {
                     lhs: lhs.to_ast_node(),
                     rhs: rhs.to_ast_node(),
+                    operation_sym: "=",
                 }
             ),
             BodyElement::FixedAssignment { ty, id, rhs } => Box::new(
@@ -528,6 +612,25 @@ impl BodyElement {
                     }
                 })
             },
+            BodyElement::BinaryExpression { lhs, rhs, operation } => Box::new(
+                ast::BinaryExpression {
+                    lhs: lhs.to_ast_node(),
+                    rhs: rhs.to_ast_node(),
+                    operation_sym: operation.sym(),
+                }
+            ),
+            BodyElement::LiteralValue(val) => Box::new(
+                match val {
+                    LiteralValue::Number(num) => ast::LiteralValue::Number(*num),
+                }
+            ),
+            BodyElement::TernaryExpression { test, true_branch, false_branch } => Box::new(
+                ast::TernaryExpression {
+                    test: test.to_ast_node(),
+                    true_branch: true_branch.to_ast_node(),
+                    false_branch: false_branch.to_ast_node(),
+                }
+            )
         }
     }
 }

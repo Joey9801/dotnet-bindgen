@@ -186,6 +186,8 @@ pub enum CSharpType {
     UInt32,
     UInt64,
 
+    Bool,
+
     Array {
         elem_type: Box<CSharpType>,
     },
@@ -217,6 +219,7 @@ impl fmt::Display for CSharpType {
             CSharpType::UInt16 => write!(f, "UInt16"),
             CSharpType::UInt32 => write!(f, "UInt32"),
             CSharpType::UInt64 => write!(f, "UInt64"),
+            CSharpType::Bool => write!(f, "bool"),
             CSharpType::Array { elem_type } => write!(f, "{}[]", elem_type),
             CSharpType::Ptr { target } => write!(f, "{}*", target),
             CSharpType::Struct { name } => write!(f, "{}", name),
@@ -248,6 +251,7 @@ impl fmt::Display for Ident {
 pub enum LiteralValue {
     QuotedString(String),
     EnumValue(String, String),
+    Number(i64),
 }
 
 impl fmt::Display for LiteralValue {
@@ -255,6 +259,7 @@ impl fmt::Display for LiteralValue {
         match self {
             LiteralValue::QuotedString(val) => write!(f, "\"{}\"", val),
             LiteralValue::EnumValue(e, v) => write!(f, "{}.{}", e, v),
+            LiteralValue::Number(num) => write!(f, "{}", num),
         }
     }
 }
@@ -412,16 +417,35 @@ impl fmt::Display for Cast {
     }
 }
 
-pub struct Assignment {
+pub struct BinaryExpression {
     pub lhs: Box<dyn AstNode>,
     pub rhs: Box<dyn AstNode>,
+    pub operation_sym: &'static str,
 }
 
-impl AstNode for Assignment {
+impl AstNode for BinaryExpression {
     fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
         self.lhs.render(f, ctx)?;
-        write!(f, " = ")?;
+        write!(f, " {} ", self.operation_sym)?;
         self.rhs.render(f, ctx)
+    }
+}
+
+pub struct TernaryExpression {
+    pub test: Box<dyn AstNode>,
+    pub true_branch: Box<dyn AstNode>,
+    pub false_branch: Box<dyn AstNode>,
+}
+
+impl AstNode for TernaryExpression {
+    fn render(&self, f: &mut dyn io::Write, ctx: RenderContext) -> Result<(), io::Error> {
+        write!(f, "( (")?;
+        self.test.render(f, ctx)?;
+        write!(f, ") ? (")?;
+        self.true_branch.render(f, ctx)?;
+        write!(f, ") : (")?;
+        self.false_branch.render(f, ctx)?;
+        write!(f, ") )")
     }
 }
 

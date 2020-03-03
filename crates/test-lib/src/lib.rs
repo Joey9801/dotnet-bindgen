@@ -33,3 +33,8 @@ pub struct SimpleStruct {
 fn struct_arg_val(arg: SimpleStruct) {
     dbg!(arg);
 }
+
+#[dotnet_bindgen]
+fn bool_arg(arg: bool) {
+    dbg!(arg);
+}

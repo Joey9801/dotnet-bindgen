@@ -41,6 +41,29 @@ impl<T: FfiStable> BindgenAbiConvert for T {
     }
 }
 
+/// Explicitly map booleans to uint8s to cross the ffi boundary.
+///
+/// The C99 standard only says that the representation of a bool must be large enough to hold 0 or
+/// 1. In practice this almost always means they are represented by a uint8_t by C compilers. The Rust
+/// specification explicitly doens't say how it might be represented.
+impl BindgenAbiConvert for bool {
+    type AbiType = u8;
+
+    fn from_abi_type(abi_value: Self::AbiType) -> Self {
+        abi_value != 0
+    }
+
+    fn to_abi_type(self) -> Self::AbiType {
+       if self { 1 } else { 0 }
+    }
+}
+
+impl BindgenTypeDescribe for bool {
+    fn describe() -> BindgenTypeDescriptor {
+        BindgenTypeDescriptor::Bool
+    }
+}
+
 /// FfiStable representation of a slice type
 ///
 /// This representation is written to look very similar to the actual underlying
@@ -69,6 +92,7 @@ impl<T: FfiStable> BindgenAbiConvert for &[T] {
     }
 }
 
+
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindgenTypeDescriptor {
@@ -77,6 +101,7 @@ pub enum BindgenTypeDescriptor {
         width: u8,
         signed: bool,
     },
+    Bool,
     Slice {
         elem_type: Box<BindgenTypeDescriptor>,
     },
