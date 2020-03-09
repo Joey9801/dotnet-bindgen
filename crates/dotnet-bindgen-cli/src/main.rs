@@ -9,6 +9,8 @@ mod csproj;
 mod codegen;
 mod data;
 mod path_ext;
+mod new_ast;
+mod new_codegen;
 
 use data::BindgenData;
 use path_ext::BinBaseName;
