@@ -48,17 +48,17 @@ impl ast::ToTokens for CSharpType {
             Self::UInt32 => tokens.push(ast::Ident::new("UInt32")),
             Self::UInt64 => tokens.push(ast::Ident::new("UInt64")),
             Self::Bool => tokens.push(ast::Ident::new("bool")),
-            Self::Array { elem_type, } => {
+            Self::Array { elem_type } => {
                 elem_type.to_tokens(tokens);
                 tokens.push(ast::Group {
                     delimiter: ast::Delimiter::Bracket,
                     content: ast::TokenStream::new(),
                 });
-            },
+            }
             Self::Ptr { target } => {
                 tokens.push(ast::Punct::Asterisk);
                 target.to_tokens(tokens);
-            },
+            }
             Self::Struct { name } => name.to_tokens(tokens),
         }
     }
@@ -70,7 +70,7 @@ struct GeneratedIdentId(i32);
 #[derive(Debug, Clone)]
 enum Ident {
     Named(String),
-    Generated(GeneratedIdentId)
+    Generated(GeneratedIdentId),
 }
 
 impl<T: ToString> From<T> for Ident {
@@ -84,7 +84,8 @@ impl Into<ast::Ident> for Ident {
         match self {
             Self::Named(name) => name.to_string(),
             Self::Generated(GeneratedIdentId(num)) => format!("_gen{}", num),
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -100,7 +101,7 @@ impl ast::ToTokens for Ident {
 }
 
 /// A higher level primitive than an AST node.
-trait BodyElement : ast::ToTokens {
+trait BodyElement: ast::ToTokens {
     /// If true, renders all following elements inside a new scope.
     fn requires_block(&self) -> bool {
         false
@@ -152,9 +153,8 @@ impl ast::ToTokens for Cast {
 
 impl BodyElement for Cast {}
 
-
 /// $return_type $return_ident = $object.$method_name($args,*)
-/// 
+///
 /// For method calls on the current object, set MethodCall::object to
 /// Ident::Named("this")
 #[derive(Debug, Clone)]
@@ -167,7 +167,6 @@ struct MethodCall {
     method: Ident,
     args: Vec<Ident>,
 }
-
 
 impl ast::ToTokens for MethodCall {
     fn to_tokens(&self, tokens: &mut ast::TokenStream) {
@@ -261,18 +260,15 @@ mod tests {
     use super::*;
     use crate::new_ast::ToTokens;
 
-    fn to_tokens_test_helper(
-        element: impl ToTokens,
-        expected: &str,
-    ) {
+    fn to_tokens_test_helper(element: impl ToTokens, expected: &str) {
         let tokens = element.to_token_stream();
 
         let mut rendered = Vec::new();
-        tokens.render(&mut rendered)
+        tokens
+            .render(&mut rendered)
             .expect("TokenStream::render to not emit an error");
-        let rendered = String::from_utf8(rendered)
-            .expect("TokenStream::render to emit valid utf8");
-        
+        let rendered = String::from_utf8(rendered).expect("TokenStream::render to emit valid utf8");
+
         let rendered_tokens = rendered.split_whitespace().collect::<Vec<_>>();
         let expected_tokens = expected.split_whitespace().collect::<Vec<_>>();
 
@@ -287,29 +283,31 @@ mod tests {
                 ty: CSharpType::Int16,
                 source_ident: "source".into(),
             },
-            "Int16 target = ( Int16 ) source ;"
+            "Int16 target = ( Int16 ) source ;",
         );
     }
 
     #[test]
     fn test_method_call_tokens() {
-        to_tokens_test_helper(MethodCall {
+        to_tokens_test_helper(
+            MethodCall {
                 return_ident: Some("ret".into()),
                 return_type: CSharpType::Int16,
                 object: "this".into(),
                 method: "MethodName".into(),
                 args: vec!["anArg".into(), "anotherArg".into()],
             },
-            "Int16 ret = this . MethodName ( anArg , anotherArg ) ;"
+            "Int16 ret = this . MethodName ( anArg , anotherArg ) ;",
         );
     }
 
     #[test]
     fn test_return_tokens() {
-        to_tokens_test_helper(Return {
-                ident: Ident::Generated(GeneratedIdentId(12),)
+        to_tokens_test_helper(
+            Return {
+                ident: Ident::Generated(GeneratedIdentId(12)),
             },
-            "return _gen12 ;"
+            "return _gen12 ;",
         );
     }
 
@@ -326,28 +324,29 @@ mod tests {
                 MethodArg {
                     name: "barArg".into(),
                     ty: CSharpType::Bool,
-                }
+                },
             ],
-            body: vec! [
+            body: vec![
                 Box::new(MethodCall {
                     return_ident: Some(Ident::Generated(GeneratedIdentId(1))),
                     return_type: CSharpType::Int64,
                     object: "this".into(),
-                    method: Ident::Generated(GeneratedIdentId(0),),
+                    method: Ident::Generated(GeneratedIdentId(0)),
                     args: vec!["arg1".into(), "barArg".into()],
                 }),
                 Box::new(Return {
-                    ident: Ident::Generated(GeneratedIdentId(1),)
+                    ident: Ident::Generated(GeneratedIdentId(1)),
                 }),
-            ]
+            ],
         };
 
-        to_tokens_test_helper(method,
+        to_tokens_test_helper(
+            method,
             "Int64 FooMethod ( UInt16 arg1 , bool barArg ) 
             {
                 Int64 _gen1 = this . _gen0 ( arg1 , barArg ) ;
                 return _gen1 ;
-            }"
+            }",
         );
     }
 }

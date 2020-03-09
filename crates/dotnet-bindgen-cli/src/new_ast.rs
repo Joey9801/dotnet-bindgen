@@ -1,5 +1,5 @@
-use std::io;
 use core::iter::FromIterator;
+use std::io;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Delimiter {
@@ -134,9 +134,7 @@ pub struct TokenStream {
 
 impl TokenStream {
     pub fn new() -> Self {
-        Self {
-            parts: Vec::new(),
-        }
+        Self { parts: Vec::new() }
     }
 
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a TokenTree> {
@@ -162,7 +160,7 @@ impl TokenStream {
 }
 
 impl<T: Into<TokenTree>> Extend<T> for TokenStream {
-    fn extend<I: IntoIterator<Item=T>>(&mut self, i: I) {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, i: I) {
         for elem in i {
             self.parts.push(elem.into());
         }
@@ -170,14 +168,11 @@ impl<T: Into<TokenTree>> Extend<T> for TokenStream {
 }
 
 impl<T: Into<TokenTree>> FromIterator<T> for TokenStream {
-    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let parts = iter.into_iter().map(|x| x.into()).collect();
-        Self {
-            parts,
-        }
+        Self { parts }
     }
 }
-
 
 pub trait ToTokens {
     fn to_tokens(&self, tokens: &mut TokenStream);
