@@ -215,3 +215,43 @@ impl ast::ToTokens for Return {
 }
 
 impl BodyElement for Return {}
+
+struct MethodArg {
+    name: Ident,
+    ty: CSharpType,
+}
+
+struct Method {
+    name: Ident,
+    return_type: CSharpType,
+    args: Vec<MethodArg>,
+    body: Vec<Box<dyn BodyElement>>,
+}
+
+impl ast::ToTokens for Method {
+    fn to_tokens(&self, tokens: &mut ast::TokenStream) {
+        self.return_type.to_tokens(tokens);
+        self.name.to_tokens(tokens);
+
+        let mut arg_tokens = ast::TokenStream::new();
+        let mut first_arg = true;
+        for arg in &self.args {
+            if !first_arg {
+                arg_tokens.push(ast::Punct::Comma);
+            }
+            first_arg = false;
+            arg.ty.to_tokens(&mut arg_tokens);
+            arg.name.to_tokens(&mut arg_tokens);
+        }
+
+        tokens.push(ast::Group {
+            delimiter: ast::Delimiter::Paren,
+            content: arg_tokens,
+        });
+
+        tokens.push(ast::Group {
+            delimiter: ast::Delimiter::Brace,
+            content: self.body.to_token_stream(),
+        });
+    }
+}
