@@ -151,3 +151,52 @@ impl ast::ToTokens for Cast {
 }
 
 impl BodyElement for Cast {}
+
+
+/// $return_type $return_ident = $object.$method_name($args,*)
+/// 
+/// For method calls on the current object, set MethodCall::object to
+/// Ident::Named("this")
+#[derive(Debug, Clone)]
+struct MethodCall {
+    /// Optional as C# doens't have a unit type, so it is illegal to assign the
+    /// result of a method returning void
+    return_ident: Option<Ident>,
+    return_type: CSharpType,
+    object: Ident,
+    method: Ident,
+    args: Vec<Ident>,
+}
+
+
+impl ast::ToTokens for MethodCall {
+    fn to_tokens(&self, tokens: &mut ast::TokenStream) {
+        if let Some(ident) = &self.return_ident {
+            self.return_type.to_tokens(tokens);
+            ident.to_tokens(tokens);
+            tokens.push(ast::Punct::Equals);
+        }
+
+        self.object.to_tokens(tokens);
+        tokens.push(ast::Punct::Period);
+        self.method.to_tokens(tokens);
+
+        let mut arg_group = ast::Group {
+            delimiter: ast::Delimiter::Paren,
+            content: ast::TokenStream::new(),
+        };
+        let mut first = true;
+        for arg in &self.args {
+            if !first {
+                arg_group.content.push(ast::Punct::Comma);
+            }
+            first = false;
+            arg.to_tokens(&mut arg_group.content);
+        }
+
+        tokens.push(arg_group);
+        tokens.push(ast::Punct::Semicolon);
+    }
+}
+
+impl BodyElement for MethodCall {}
