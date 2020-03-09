@@ -127,3 +127,27 @@ impl ast::ToTokens for [Box<dyn BodyElement>] {
         }
     }
 }
+
+/// $ty $ident = ($ty) $source_ident;
+#[derive(Debug, Clone)]
+struct Cast {
+    ident: Ident,
+    ty: CSharpType,
+    source_ident: Ident,
+}
+
+impl ast::ToTokens for Cast {
+    fn to_tokens(&self, tokens: &mut ast::TokenStream) {
+        self.ty.to_tokens(tokens);
+        self.ident.to_tokens(tokens);
+        tokens.push(ast::Punct::Equals);
+        tokens.push(ast::Group {
+            delimiter: ast::Delimiter::Paren,
+            content: self.ty.to_token_stream(),
+        });
+        self.source_ident.to_tokens(tokens);
+        tokens.push(ast::Punct::Semicolon);
+    }
+}
+
+impl BodyElement for Cast {}
