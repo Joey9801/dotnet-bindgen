@@ -200,3 +200,18 @@ impl ast::ToTokens for MethodCall {
 }
 
 impl BodyElement for MethodCall {}
+
+#[derive(Debug, Clone)]
+struct Return {
+    ident: Ident,
+}
+
+impl ast::ToTokens for Return {
+    fn to_tokens(&self, tokens: &mut ast::TokenStream) {
+        tokens.push(ast::Ident::new("return"));
+        self.ident.to_tokens(tokens);
+        tokens.push(ast::Punct::Semicolon);
+    }
+}
+
+impl BodyElement for Return {}
