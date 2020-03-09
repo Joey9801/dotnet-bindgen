@@ -98,3 +98,32 @@ impl ast::ToTokens for Ident {
         tokens.push(ast::Ident::new(ident));
     }
 }
+
+/// A higher level primitive than an AST node.
+trait BodyElement : ast::ToTokens {
+    /// If true, renders all following elements inside a new scope.
+    fn requires_block(&self) -> bool {
+        false
+    }
+}
+
+impl ast::ToTokens for [Box<dyn BodyElement>] {
+    fn to_tokens(&self, tokens: &mut ast::TokenStream) {
+        let mut last_element = 0;
+        for element in self {
+            element.to_tokens(tokens);
+            last_element += 1;
+            if element.requires_block() {
+                break;
+            }
+        }
+
+        if last_element < self.len() {
+            // Create a new block for the remainder of this set of elements
+            tokens.push(ast::Group {
+                delimiter: ast::Delimiter::Brace,
+                content: self[last_element..].to_token_stream(),
+            });
+        }
+    }
+}
