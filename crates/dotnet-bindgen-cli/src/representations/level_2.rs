@@ -98,7 +98,7 @@ pub struct CsArrToSliceAbi {
 }
 
 impl CsArrToSliceAbi {
-    fn new(
+    pub fn new(
         source_ident: impl Into<lower::Ident>,
         element_type: lower::CSharpType,
         ident_gen: &mut lower::IdentGenerator,

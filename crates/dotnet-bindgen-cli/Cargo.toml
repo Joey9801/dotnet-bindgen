@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 dotnet-bindgen-core = { path = "../dotnet-bindgen-core" }
 dotnet-bindgen = { path = "../../" }
-goblin = "0.0.24"
-heck = "0.3"
-clap = "2.33"
-libloading = "0.5"
+goblin = "0.4.2"
+heck = "0.3.3"
+clap = "2.33.3"
+libloading = "0.7.0"

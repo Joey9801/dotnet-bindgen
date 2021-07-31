@@ -16,18 +16,18 @@ pub struct BindgenData {
 impl BindgenData {
     fn load_elf(elf: &Elf, file_path: &Path) -> Result<Self, &'static str> {
         let mut descriptors = Vec::new();
-        let lib = libloading::Library::new(file_path).unwrap();
-        for sym in elf.dynsyms.iter() {
-            let name = match elf.dynstrtab.get(sym.st_name) {
-                Some(Ok(s)) => s,
-                _ => continue,
-            };
+        unsafe {
+            let lib = libloading::Library::new(file_path).unwrap();
+            for sym in elf.dynsyms.iter() {
+                let name = match elf.dynstrtab.get_at(sym.st_name) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-            if !name.starts_with(BINDGEN_DESCRIBE_PREFIX) {
-                continue;
-            }
+                if !name.starts_with(BINDGEN_DESCRIBE_PREFIX) {
+                    continue;
+                }
 
-            unsafe {
                 let descriptor_func: libloading::Symbol<unsafe fn() -> BindgenExportDescriptor> =
                     lib.get(name.as_bytes()).unwrap();
                 descriptors.push(descriptor_func());
