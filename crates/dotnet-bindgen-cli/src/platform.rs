@@ -35,7 +35,7 @@ impl FromStr for NativePlatform {
             "linux-x64" => Ok(NativePlatform::LinuxX64),
             "linux-musl-x64" => Ok(NativePlatform::LinuxMuslX64),
             "osx-x64" => Ok(NativePlatform::OsxX64),
-            _ => Err("Unrecognized platform")
+            _ => Err("Unrecognized platform"),
         }
     }
 }

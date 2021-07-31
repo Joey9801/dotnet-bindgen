@@ -41,7 +41,7 @@ impl BindgenData {
     }
 
     /// Sorts the descriptors in this binding data set, to simplify comparisons with other sets.
-    fn sort_descriptors(&mut self) { 
+    fn sort_descriptors(&mut self) {
         self.descriptors.sort_by_cached_key(|d| match d {
             BindgenExportDescriptor::Function(f) => f.real_name.clone(),
             BindgenExportDescriptor::Struct(s) => s.name.clone(),
@@ -59,7 +59,7 @@ impl BindgenData {
             Object::Unknown(magic) => {
                 println!("unknown magic: {:#x}", magic);
                 Err("unknown magic number")
-            },
+            }
             _ => Err("Unsupported binary type"),
         }?;
 
