@@ -9,6 +9,7 @@ mod path_ext;
 mod platform;
 
 pub mod representations;
+pub mod passes;
 
 use data::BindgenData;
 use path_ext::BinBaseName;
