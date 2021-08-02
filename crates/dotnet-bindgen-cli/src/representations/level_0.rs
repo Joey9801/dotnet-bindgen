@@ -67,9 +67,11 @@ impl Ident {
     }
 }
 
-impl From<String> for Ident {
-    fn from(s: String) -> Self {
-        Self::new(s)
+impl<T: AsRef<str>> From<T> for Ident {
+    fn from(s: T) -> Self {
+        Self {
+            name: s.as_ref().to_string(),
+        }
     }
 }
 
@@ -138,9 +140,9 @@ impl From<Group> for TokenTree {
     }
 }
 
-impl From<Ident> for TokenTree {
-    fn from(i: Ident) -> Self {
-        Self::Ident(i)
+impl<T: Into<Ident>> From<T> for TokenTree {
+    fn from(i: T) -> Self {
+        Self::Ident(i.into())
     }
 }
 

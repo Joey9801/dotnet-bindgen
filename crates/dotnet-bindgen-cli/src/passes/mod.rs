@@ -1,12 +1,17 @@
-use crate::representations::{level_0, level_1, level_2};
+use crate::{
+    representations::{level_0, level_1},
+};
 use level_0::ToTokens;
 use std::fmt::Debug;
+
+pub mod entry;
+pub mod lower_level_2;
 
 pub trait Pass: Sized + Debug {
     type Input;
     type Output;
 
-    fn perform(&self, input: Self::Input) -> Self::Output;
+    fn perform(&self, input: &Self::Input) -> Self::Output;
 }
 
 #[derive(Debug)]
@@ -24,9 +29,9 @@ where
     type Input = Input;
     type Output = Output;
 
-    fn perform(&self, input: Self::Input) -> Self::Output {
+    fn perform(&self, input: &Self::Input) -> Self::Output {
         let intermediate = self.first.perform(input);
-        self.second.perform(intermediate)
+        self.second.perform(&intermediate)
     }
 }
 
@@ -55,9 +60,9 @@ impl Pass for Level0Format {
     type Input = level_0::LayerEntrypoint;
     type Output = level_0::LayerEntrypoint;
 
-    fn perform(&self, input: Self::Input) -> Self::Output {
+    fn perform(&self, input: &Self::Input) -> Self::Output {
         // TODO: Implement this pass
-        input
+        input.clone()
     }
 }
 
@@ -68,20 +73,8 @@ impl Pass for LowerLevel1ToLevel0 {
     type Input = level_1::LayerEntrypoint;
     type Output = level_0::LayerEntrypoint;
 
-    fn perform(&self, input: Self::Input) -> Self::Output {
+    fn perform(&self, input: &Self::Input) -> Self::Output {
         input.to_token_stream()
-    }
-}
-
-#[derive(Debug)]
-struct LowerLevel2ToLevel1 {}
-
-impl Pass for LowerLevel2ToLevel1 {
-    type Input = level_2::BindingMethod;
-    type Output = level_1::LayerEntrypoint;
-
-    fn perform(&self, input: Self::Input) -> Self::Output {
-        input.thunk_method()
     }
 }
 
@@ -97,17 +90,17 @@ where
 
 impl<Repr, Inner> Pass for Maybe<Repr, Inner>
 where
-    Repr: Debug,
+    Repr: Debug + Clone,
     Inner: Pass<Input = Repr, Output = Repr>,
 {
     type Input = Repr;
     type Output = Repr;
 
-    fn perform(&self, input: Self::Input) -> Self::Output {
+    fn perform(&self, input: &Self::Input) -> Self::Output {
         if self.enabled {
             self.inner.perform(input)
         } else {
-            input
+            input.clone()
         }
     }
 }
@@ -142,18 +135,11 @@ macro_rules! passes {
     };
 }
 
-pub fn default_passes(
-    format_output: bool,
-) -> impl Pass<Input = level_2::LayerEntrypoint, Output = level_0::LayerEntrypoint> {
+pub fn default_passes() -> impl Pass<Input = crate::SourceBinarySpec, Output = level_0::TokenStream> {
     passes!(
-        LowerLevel2ToLevel1 {},
+        entry::EntryPass {},
+        lower_level_2::LowerLevel2ToLevel1 {},
         LowerLevel1ToLevel0 {},
-        Level0Format {}.only_if(format_output)
+        Level0Format {}
     )
-}
-
-#[test]
-fn print_default_passes() {
-    dbg!(default_passes(true));
-    dbg!(default_passes(false));
 }

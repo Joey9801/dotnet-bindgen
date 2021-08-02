@@ -2,9 +2,9 @@
 //! code free of any bindgen specific semantics. It also provides implementations of level_0's
 //! ToTokens trait to lower this representation.
 
-use super::level_0 as lower;
+use super::level_0::{self as lower, Punct};
 
-pub type LayerEntrypoint = Method;
+pub type LayerEntrypoint = CsSource;
 
 #[derive(Clone, Debug)]
 pub enum CSharpType {
@@ -56,10 +56,10 @@ impl CSharpType {
             elem_type: Box::new(self),
         }
     }
-    
+
     pub fn ptr_to(self) -> CSharpType {
         CSharpType::Ptr {
-            target: Box::new(self)
+            target: Box::new(self),
         }
     }
 }
@@ -67,17 +67,17 @@ impl CSharpType {
 impl lower::ToTokens for CSharpType {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
         match self {
-            Self::Var => tokens.push(lower::Ident::new("var")),
-            Self::Void => tokens.push(lower::Ident::new("void")),
-            Self::SByte => tokens.push(lower::Ident::new("SByte")),
-            Self::Int16 => tokens.push(lower::Ident::new("Int16")),
-            Self::Int32 => tokens.push(lower::Ident::new("Int32")),
-            Self::Int64 => tokens.push(lower::Ident::new("Int64")),
-            Self::Byte => tokens.push(lower::Ident::new("Byte")),
-            Self::UInt16 => tokens.push(lower::Ident::new("UInt16")),
-            Self::UInt32 => tokens.push(lower::Ident::new("UInt32")),
-            Self::UInt64 => tokens.push(lower::Ident::new("UInt64")),
-            Self::Bool => tokens.push(lower::Ident::new("bool")),
+            Self::Var => tokens.push("var"),
+            Self::Void => tokens.push("void"),
+            Self::SByte => tokens.push("SByte"),
+            Self::Int16 => tokens.push("Int16"),
+            Self::Int32 => tokens.push("Int32"),
+            Self::Int64 => tokens.push("Int64"),
+            Self::Byte => tokens.push("Byte"),
+            Self::UInt16 => tokens.push("UInt16"),
+            Self::UInt32 => tokens.push("UInt32"),
+            Self::UInt64 => tokens.push("UInt64"),
+            Self::Bool => tokens.push("bool"),
             Self::Array { elem_type } => {
                 elem_type.to_tokens(tokens);
                 tokens.push(lower::Group {
@@ -178,7 +178,7 @@ impl lower::ToTokens for Ident {
             Self::Generated(GeneratedIdentId(num)) => format!("_gen{}", num),
         };
 
-        tokens.push(lower::Ident::new(ident));
+        tokens.push(ident);
     }
 }
 
@@ -206,8 +206,8 @@ pub struct UsingStatement {
 
 impl lower::ToTokens for UsingStatement {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
-        tokens.push(lower::Ident::new("using"));
-        tokens.push(lower::Ident::new(&self.path));
+        tokens.push("using");
+        tokens.push(&self.path);
         tokens.push(lower::Punct::Semicolon);
     }
 }
@@ -215,7 +215,7 @@ impl lower::ToTokens for UsingStatement {
 impl TopLevelElement for UsingStatement {}
 
 pub struct Namespace {
-    pub path: String,
+    pub path: Ident,
     pub contents: Vec<Box<dyn TopLevelElement>>,
 }
 
@@ -226,8 +226,8 @@ impl lower::ToTokens for Namespace {
             content_chunk.to_tokens(&mut group_stream);
         }
 
-        tokens.push(lower::Ident::new("namespace"));
-        tokens.push(lower::Ident::new(&self.path));
+        tokens.push("namespace");
+        tokens.push(self.path.clone());
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Brace,
             content: group_stream,
@@ -246,8 +246,8 @@ pub enum Literal {
 impl lower::ToTokens for Literal {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
         match self {
-            Literal::Integer(i) => tokens.push(lower::Ident::new(format!("{}", i))),
-            Literal::String(s) => tokens.push(lower::Ident::new(format!("\"{}\"", s))),
+            Literal::Integer(i) => tokens.push(format!("{}", i)),
+            Literal::String(s) => tokens.push(format!("\"{}\"", s)),
         }
     }
 }
@@ -479,7 +479,7 @@ pub struct AssignmentFixed(pub Assignment);
 
 impl lower::ToTokens for AssignmentFixed {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
-        tokens.push(lower::Ident::new("fixed"));
+        tokens.push("fixed");
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Paren,
             content: self.0.to_token_stream(),
@@ -497,7 +497,7 @@ pub struct UnsafeBlock();
 
 impl lower::ToTokens for UnsafeBlock {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
-        tokens.push(lower::Ident::new("unsafe"));
+        tokens.push("unsafe");
     }
 }
 
@@ -587,7 +587,7 @@ pub struct Return {
 
 impl lower::ToTokens for Return {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
-        tokens.push(lower::Ident::new("return"));
+        tokens.push("return");
         self.ident.to_tokens(tokens);
         tokens.push(lower::Punct::Semicolon);
     }
@@ -598,15 +598,15 @@ impl BodyStatement for Return {}
 /// [$name]
 /// [$name(($args),*)]
 pub struct Attribute {
-    name: Ident,
-    args: Vec<Box<dyn BodyExpression>>,
+    pub name: Ident,
+    pub args: Vec<Box<dyn BodyExpression>>,
 }
 
 impl lower::ToTokens for Attribute {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
         let mut content = lower::TokenStream::new();
         self.name.to_tokens(&mut content);
-        
+
         if self.args.len() > 0 {
             let mut arg_content = lower::TokenStream::new();
             let mut first = true;
@@ -622,7 +622,7 @@ impl lower::ToTokens for Attribute {
                 content: arg_content,
             })
         }
-        
+
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Bracket,
             content,
@@ -630,35 +630,36 @@ impl lower::ToTokens for Attribute {
     }
 }
 
-
 pub struct MethodArg {
     pub name: Ident,
     pub ty: CSharpType,
 }
 
-pub enum MethodAccess {
+pub enum Visibility {
     Public,
     Private,
     Protected,
 }
 
-impl lower::ToTokens for MethodAccess {
+impl lower::ToTokens for Visibility {
     fn to_tokens(&self, tokens: &mut lower::TokenStream) {
-        tokens.push(lower::Ident::new(match self {
-            MethodAccess::Public => "public",
-            MethodAccess::Private => "private",
-            MethodAccess::Protected => "protected",
-        }));
+        tokens.push(match self {
+            Visibility::Public => "public",
+            Visibility::Private => "private",
+            Visibility::Protected => "protected",
+        });
     }
 }
 
 pub struct Method {
     pub attributes: Vec<Attribute>,
-    pub access: MethodAccess,
+    pub visibility: Visibility,
+    pub is_static: bool,
+    pub is_extern: bool,
     pub name: Ident,
     pub return_type: CSharpType,
     pub args: Vec<MethodArg>,
-    pub body: Vec<Box<dyn BodyStatement>>,
+    pub body: Option<Vec<Box<dyn BodyStatement>>>,
 }
 
 impl lower::ToTokens for Method {
@@ -667,7 +668,16 @@ impl lower::ToTokens for Method {
             attr.to_tokens(tokens);
         }
 
-        self.access.to_tokens(tokens);
+        self.visibility.to_tokens(tokens);
+
+        if self.is_static {
+            tokens.push("static");
+        }
+
+        if self.is_extern {
+            tokens.push("extern");
+        }
+
         self.return_type.to_tokens(tokens);
         self.name.to_tokens(tokens);
 
@@ -687,10 +697,82 @@ impl lower::ToTokens for Method {
             content: arg_tokens,
         });
 
+        match &self.body {
+            Some(body) => tokens.push(lower::Group {
+                delimiter: lower::Delimiter::Brace,
+                content: body.to_token_stream(),
+            }),
+            None => tokens.push(Punct::Semicolon),
+        }
+    }
+}
+
+pub enum ObjectKind {
+    Class,
+    Struct,
+}
+
+impl lower::ToTokens for ObjectKind {
+    fn to_tokens(&self, tokens: &mut lower::TokenStream) {
+        tokens.push(match self {
+            ObjectKind::Class => "class",
+            ObjectKind::Struct => "struct",
+        });
+    }
+}
+
+pub struct Object {
+    pub attributes: Vec<Attribute>,
+    pub visibility: Visibility,
+    pub is_sealed: bool,
+    pub is_static: bool,
+    pub kind: ObjectKind,
+    pub name: Ident,
+    pub methods: Vec<Method>,
+}
+
+impl lower::ToTokens for Object {
+    fn to_tokens(&self, tokens: &mut lower::TokenStream) {
+        for attr in &self.attributes {
+            attr.to_tokens(tokens);
+        }
+
+        self.visibility.to_tokens(tokens);
+        if self.is_sealed {
+            tokens.push("sealed");
+        }
+        if self.is_static {
+            tokens.push("static");
+        }
+
+        self.kind.to_tokens(tokens);
+        
+        self.name.to_tokens(tokens);
+        
+        let mut content = lower::TokenStream::new();
+        for method in &self.methods {
+            method.to_tokens(&mut content);
+        }
+        
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Brace,
-            content: self.body.to_token_stream(),
+            content,
         });
+    }
+}
+
+impl TopLevelElement for Object {}
+
+/// Represents the entirity of a single C# source file
+pub struct CsSource {
+    pub elements: Vec<Box<dyn TopLevelElement>>,
+}
+
+impl lower::ToTokens for CsSource {
+    fn to_tokens(&self, tokens: &mut lower::TokenStream) {
+        for element in &self.elements {
+            element.to_tokens(tokens);
+        }
     }
 }
 
@@ -797,38 +879,44 @@ mod tests {
             "return _gen12 ;",
         );
     }
-    
+
     #[test]
     fn test_attribute_tokens() {
-        to_tokens_test_helper(Attribute {
-            name: "TestAttr".into(),
-            args: Vec::new(),
-        }, "[ TestAttr ]");
+        to_tokens_test_helper(
+            Attribute {
+                name: "TestAttr".into(),
+                args: Vec::new(),
+            },
+            "[ TestAttr ]",
+        );
 
-        to_tokens_test_helper(Attribute {
-            name: "TestAttr".into(),
-            args: vec![Box::new(Ident::new("arg1"))],
-        }, "[ TestAttr ( arg1 ) ]");
+        to_tokens_test_helper(
+            Attribute {
+                name: "TestAttr".into(),
+                args: vec![Box::new(Ident::new("arg1"))],
+            },
+            "[ TestAttr ( arg1 ) ]",
+        );
 
-        to_tokens_test_helper(Attribute {
-            name: "TestAttr".into(),
-            args: vec![
-                Box::new(Ident::new("arg1")),
-                Box::new(Ident::new("arg2")),
-            ],
-        }, "[ TestAttr ( arg1 , arg2 ) ]");
+        to_tokens_test_helper(
+            Attribute {
+                name: "TestAttr".into(),
+                args: vec![Box::new(Ident::new("arg1")), Box::new(Ident::new("arg2"))],
+            },
+            "[ TestAttr ( arg1 , arg2 ) ]",
+        );
     }
 
     #[test]
     fn test_method_tokens() {
         let method = Method {
-            attributes: vec![
-                Attribute {
-                    name: "TestAttr".into(),
-                    args: vec![Box::new(Ident::new("arg1")), Box::new(Ident::new("arg2"))]
-                }
-            ],
-            access: MethodAccess::Public,
+            attributes: vec![Attribute {
+                name: "TestAttr".into(),
+                args: vec![Box::new(Ident::new("arg1")), Box::new(Ident::new("arg2"))],
+            }],
+            visibility: Visibility::Public,
+            is_static: false,
+            is_extern: false,
             name: "FooMethod".into(),
             return_type: CSharpType::Int64,
             args: vec![
@@ -841,7 +929,7 @@ mod tests {
                     ty: CSharpType::Bool,
                 },
             ],
-            body: vec![
+            body: Some(vec![
                 Box::new(
                     Assignment::new(
                         DeclareVariableExpr {
@@ -859,7 +947,7 @@ mod tests {
                 Box::new(Return {
                     ident: Ident::Generated(GeneratedIdentId(1)),
                 }),
-            ],
+            ]),
         };
 
         to_tokens_test_helper(

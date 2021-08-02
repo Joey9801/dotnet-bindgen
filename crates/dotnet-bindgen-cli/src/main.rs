@@ -8,14 +8,16 @@ mod data;
 mod path_ext;
 mod platform;
 
-pub mod representations;
 pub mod passes;
+pub mod representations;
 
 use data::BindgenData;
 use path_ext::BinBaseName;
 use platform::NativePlatform;
 
-struct SourceBinarySpec {
+use crate::passes::Pass;
+
+pub struct SourceBinarySpec {
     platform: platform::NativePlatform,
     bin_path: PathBuf,
     base_name: String,
@@ -139,18 +141,17 @@ fn generate_bindings(
     // Write out a bindings source file from that ast
     let bindings_filename = format!("{}Bindings.cs", base_name.to_camel_case());
     let bindings_filepath = source_output_dir.join(bindings_filename);
-    let _bindings_file = std::fs::File::create(&bindings_filepath).expect(&format!(
+    let mut bindings_file = std::fs::File::create(&bindings_filepath).expect(&format!(
         "Can't open {} for writing",
         bindings_filepath.to_str().unwrap()
     ));
 
-    todo!("Generate the C# source code from the binding definitions");
-    // let ast_root = codegen::form_ast_from_data(&input_binaries.first().unwrap().bindgen_data);
-    // ast_root
-    //     .render(&mut bindings_file)
-    //     .map_err(|_| "Failed to write bindings C# ast to file")?;
+    let compile_passes = crate::passes::default_passes();
+    let cs_content = compile_passes.perform(&input_binaries.first().unwrap());
+    cs_content.render(&mut bindings_file)   
+        .expect("Failed to write bindings file");
 
-    // Ok(())
+    Ok(())
 }
 
 fn main() -> Result<(), &'static str> {
