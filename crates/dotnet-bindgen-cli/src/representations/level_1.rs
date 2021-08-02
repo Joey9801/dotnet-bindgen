@@ -707,6 +707,25 @@ impl lower::ToTokens for Method {
     }
 }
 
+pub struct ObjectField {
+    pub attributes: Vec<Attribute>,
+    pub visibility: Visibility,
+    pub ty: CSharpType,
+    pub name: Ident,
+}
+
+impl lower::ToTokens for ObjectField {
+    fn to_tokens(&self, tokens: &mut lower::TokenStream) {
+        for attr in &self.attributes {
+            attr.to_tokens(tokens);
+        }
+        self.visibility.to_tokens(tokens);
+        self.ty.to_tokens(tokens);
+        self.name.to_tokens(tokens);
+        tokens.push(lower::Punct::Semicolon);
+    }
+}
+
 pub enum ObjectKind {
     Class,
     Struct,
@@ -728,6 +747,7 @@ pub struct Object {
     pub is_static: bool,
     pub kind: ObjectKind,
     pub name: Ident,
+    pub fields: Vec<ObjectField>,
     pub methods: Vec<Method>,
 }
 
@@ -750,6 +770,11 @@ impl lower::ToTokens for Object {
         self.name.to_tokens(tokens);
         
         let mut content = lower::TokenStream::new();
+        
+        for field in &self.fields {
+            field.to_tokens(&mut content);
+        }
+
         for method in &self.methods {
             method.to_tokens(&mut content);
         }
