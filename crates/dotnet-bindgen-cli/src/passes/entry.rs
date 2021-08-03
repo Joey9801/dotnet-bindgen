@@ -103,6 +103,27 @@ fn free_methods(input: &crate::SourceBinarySpec) -> Option<level_2::MethodContai
     }
 }
 
+/// Add any struct definitions that should be implicitly available for bindgen methods
+fn add_default_structs(structs: &mut Vec<level_2::BindingStruct>) {
+    structs.push(level_2::BindingStruct {
+        size: 16,
+        alignment: 8,
+        name: "SliceAbi".into(),
+        fields: vec![
+            level_2::BindingField {
+                offset: 0,
+                ty: level_1::CSharpType::new_struct("IntPtr"),
+                name: "Pointer".to_string(),
+            },
+            level_2::BindingField {
+                offset: 8,
+                ty: level_1::CSharpType::UInt64,
+                name: "Length".to_string(),
+            }
+        ],
+    });
+}
+
 #[derive(Debug)]
 pub struct EntryPass {}
 
@@ -113,10 +134,14 @@ impl super::Pass for EntryPass {
     fn perform(&self, input: &Self::Input) -> Self::Output {
         let namespace = "Bindings.Generated".into();
         let free_methods = free_methods(input);
+
+        let mut structs = Vec::new();
+        add_default_structs(&mut structs);
         
         level_2::BindingModule {
             namespace,
             free_methods,
+            structs,
         }
     }
 }

@@ -281,6 +281,20 @@ impl BindingMethod {
     }
 }
 
+pub struct BindingField {
+    pub offset: u32,
+    pub ty: lower::CSharpType,
+    pub name: String,
+}
+
+/// The definition of some product type that can cross the FFI boundary
+pub struct BindingStruct {
+    pub size: u32,
+    pub alignment: u32,
+    pub name: String,
+    pub fields: Vec<BindingField>,
+}
+
 /// A static class that contains a set of bindings to free functions, and their idiomatic
 /// conversion wrappers.
 pub struct MethodContainer {
@@ -290,6 +304,7 @@ pub struct MethodContainer {
 
 pub struct BindingModule {
     pub namespace: lower::Ident,
+    pub structs: Vec<BindingStruct>,
     pub free_methods: Option<MethodContainer>,
 }
 
