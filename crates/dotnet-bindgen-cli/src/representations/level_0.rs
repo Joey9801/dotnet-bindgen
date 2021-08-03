@@ -50,7 +50,7 @@ impl Group {
     fn render(&self, writer: &mut dyn io::Write) -> Result<(), io::Error> {
         write!(writer, "{} ", self.delimiter.open())?;
         self.content.render(writer)?;
-        write!(writer, " {}", self.delimiter.close())
+        write!(writer, "{}", self.delimiter.close())
     }
 }
 
@@ -105,13 +105,21 @@ impl Punct {
 #[derive(Debug, Clone)]
 pub enum Formatting {
     Newline,
+    Indent(usize)
 }
 
 impl Formatting {
     pub fn render(&self, writer: &mut dyn io::Write) -> Result<(), io::Error> {
         match self {
-            Formatting::Newline => write!(writer, "\n"),
+            Formatting::Newline => write!(writer, "\n")?,
+            Formatting::Indent(level) => {
+                for _ in 0..*level {
+                    write!(writer, "    ")?
+                }
+            }
         }
+        
+        Ok(())
     }
 }
 
@@ -172,19 +180,27 @@ impl TokenStream {
         self.parts.iter()
     }
 
+    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut TokenTree> {
+        self.parts.iter_mut()
+    }
+
+    pub fn prepend<T: Into<TokenTree>>(&mut self, elem: T) {
+        self.parts.insert(0, elem.into());
+    }
+
     pub fn push<T: Into<TokenTree>>(&mut self, elem: T) {
         self.parts.push(elem.into());
     }
 
     pub fn render(&self, writer: &mut dyn io::Write) -> Result<(), io::Error> {
-        let mut first = true;
         for part in &self.parts {
-            if !first {
-                write!(writer, " ")?;
-            }
-            first = false;
-
             part.render(writer)?;
+
+            // Insert a space after this part unless this was a formatting part
+            match part {
+                TokenTree::Formatting(_) => (),
+                _ => write!(writer, " ")?,
+            };
         }
         Ok(())
     }

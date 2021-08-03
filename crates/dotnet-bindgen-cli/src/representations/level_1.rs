@@ -626,7 +626,8 @@ impl lower::ToTokens for Attribute {
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Bracket,
             content,
-        })
+        });
+        tokens.push(lower::Formatting::Newline);
     }
 }
 

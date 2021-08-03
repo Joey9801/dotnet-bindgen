@@ -4,6 +4,7 @@ use std::fmt::Debug;
 
 pub mod entry;
 pub mod lower_level_2;
+pub mod format_level_0;
 
 pub trait Pass: Sized + Debug {
     type Input;
@@ -46,21 +47,6 @@ impl<First: Pass, Second: Pass> AndThen<Second> for First {
             first: self,
             second,
         }
-    }
-}
-
-/// Inject formatting tokens (newlines, indents, etc..) with a basic heuristic to make the token
-/// stream more human-readable.
-#[derive(Debug)]
-struct Level0Format {}
-
-impl Pass for Level0Format {
-    type Input = level_0::LayerEntrypoint;
-    type Output = level_0::LayerEntrypoint;
-
-    fn perform(&self, input: &Self::Input) -> Self::Output {
-        // TODO: Implement this pass
-        input.clone()
     }
 }
 
@@ -139,6 +125,6 @@ pub fn default_passes() -> impl Pass<Input = crate::SourceBinarySpec, Output = l
         entry::EntryPass {},
         lower_level_2::LowerLevel2ToLevel1 {},
         LowerLevel1ToLevel0 {},
-        Level0Format {}
+        format_level_0::FormatLevel0 {}
     )
 }
