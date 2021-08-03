@@ -1,4 +1,4 @@
-//! This module defines an int name: (), args: ()  name: (), args: () ermediate representation that describes literal blocks of C# source
+//! This module defines an intermediate representation that describes literal blocks of C# source
 //! code free of any bindgen specific semantics. It also provides implementations of level_0's
 //! ToTokens trait to lower this representation.
 
