@@ -766,11 +766,11 @@ impl lower::ToTokens for Object {
         }
 
         self.kind.to_tokens(tokens);
-        
+
         self.name.to_tokens(tokens);
-        
+
         let mut content = lower::TokenStream::new();
-        
+
         for field in &self.fields {
             field.to_tokens(&mut content);
         }
@@ -778,7 +778,7 @@ impl lower::ToTokens for Object {
         for method in &self.methods {
             method.to_tokens(&mut content);
         }
-        
+
         tokens.push(lower::Group {
             delimiter: lower::Delimiter::Brace,
             content,

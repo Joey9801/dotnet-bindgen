@@ -1,4 +1,4 @@
-use heck::{CamelCase, MixedCase};
+use heck::CamelCase;
 
 use super::level_1 as lower;
 use lower::{DoAddressOf, DoCast, DoDeclare, DoFieldAccess, DoIndex};

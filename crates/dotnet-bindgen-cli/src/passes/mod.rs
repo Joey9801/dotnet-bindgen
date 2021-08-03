@@ -1,6 +1,4 @@
-use crate::{
-    representations::{level_0, level_1},
-};
+use crate::representations::{level_0, level_1};
 use level_0::ToTokens;
 use std::fmt::Debug;
 
@@ -135,7 +133,8 @@ macro_rules! passes {
     };
 }
 
-pub fn default_passes() -> impl Pass<Input = crate::SourceBinarySpec, Output = level_0::TokenStream> {
+pub fn default_passes() -> impl Pass<Input = crate::SourceBinarySpec, Output = level_0::TokenStream>
+{
     passes!(
         entry::EntryPass {},
         lower_level_2::LowerLevel2ToLevel1 {},

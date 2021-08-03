@@ -148,7 +148,8 @@ fn generate_bindings(
 
     let compile_passes = crate::passes::default_passes();
     let cs_content = compile_passes.perform(&input_binaries.first().unwrap());
-    cs_content.render(&mut bindings_file)   
+    cs_content
+        .render(&mut bindings_file)
         .expect("Failed to write bindings file");
 
     Ok(())

@@ -1,25 +1,25 @@
-use std::ops::Deref;
-
-use heck::{CamelCase, MixedCase};
+use heck::MixedCase;
 
 use dotnet_bindgen_core::{BindgenExportDescriptor, BindgenFunctionDescriptor};
+use level_1::CSharpType;
 
-use crate::{data, representations::{level_1, level_2}};
+use crate::{
+    representations::{level_1, level_2},
+};
 
-fn int_cs_type(width: u8, signed: bool) -> level_1::CSharpType {
+fn int_cs_type(width: u8, signed: bool) -> CSharpType {
     match (width, signed) {
-        (8, false) => level_1::CSharpType::Byte,
-        (16, false) => level_1::CSharpType::UInt16,
-        (32, false) => level_1::CSharpType::UInt32,
-        (64, false) => level_1::CSharpType::UInt64,
-        (8, true) => level_1::CSharpType::SByte,
-        (16, true) => level_1::CSharpType::Int16,
-        (32, true) => level_1::CSharpType::Int32,
-        (64, true) => level_1::CSharpType::Int64,
+        (8, false) => CSharpType::Byte,
+        (16, false) => CSharpType::UInt16,
+        (32, false) => CSharpType::UInt32,
+        (64, false) => CSharpType::UInt64,
+        (8, true) => CSharpType::SByte,
+        (16, true) => CSharpType::Int16,
+        (32, true) => CSharpType::Int32,
+        (64, true) => CSharpType::Int64,
         _ => panic!("Don't know how to handle strange width integers"),
     }
 }
-
 
 /// Create a conversion from an idiomatic C# type to the FFI type expected for the given
 /// BindgenTypeDescriptor.
@@ -47,7 +47,7 @@ fn convert_to_ffi_stable(
                 source_ident: ident,
                 source_type: element_type.clone().array_of(),
                 dest_ident: id_gen.generate_ident(),
-                dest_type: level_1::CSharpType::new_struct("SliceAbi"),
+                dest_type: CSharpType::new_struct("SliceAbi"),
                 element_type,
                 temp_ptr_indent: id_gen.generate_ident(),
             })
@@ -61,7 +61,10 @@ fn convert_to_ffi_stable(
     }
 }
 
-fn create_binding_method(desc: &BindgenFunctionDescriptor, dll_name: &str) -> level_2::BindingMethod {
+fn create_binding_method(
+    desc: &BindgenFunctionDescriptor,
+    dll_name: &str,
+) -> level_2::BindingMethod {
     let mut id_gen = level_1::IdentGenerator::new();
 
     let args = desc
@@ -94,10 +97,7 @@ fn free_methods(input: &crate::SourceBinarySpec) -> Option<level_2::MethodContai
         .collect::<Vec<_>>();
 
     if methods.len() > 0 {
-        Some(level_2::MethodContainer {
-            name,
-            methods,
-        })
+        Some(level_2::MethodContainer { name, methods })
     } else {
         None
     }
@@ -119,7 +119,7 @@ fn add_default_structs(structs: &mut Vec<level_2::BindingStruct>) {
                 offset: 8,
                 ty: level_1::CSharpType::UInt64,
                 name: "Length".to_string(),
-            }
+            },
         ],
     });
 }
@@ -137,7 +137,7 @@ impl super::Pass for EntryPass {
 
         let mut structs = Vec::new();
         add_default_structs(&mut structs);
-        
+
         level_2::BindingModule {
             namespace,
             free_methods,

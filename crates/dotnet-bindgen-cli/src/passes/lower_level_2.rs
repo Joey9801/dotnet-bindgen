@@ -1,15 +1,17 @@
-use crate::representations::{level_1::{self, Attribute}, level_2};
+use crate::representations::{
+    level_1,
+    level_2,
+};
 
 #[derive(Debug)]
 pub struct LowerLevel2ToLevel1 {}
 
-
 fn add_free_method(binding_method: &level_2::BindingMethod, methods: &mut Vec<level_1::Method>) {
     let dll_import_attr = level_1::Attribute {
         name: "DllImport".into(),
-        args: vec![
-            Box::new(level_1::Literal::String(binding_method.dll_name.to_string())),
-        ],
+        args: vec![Box::new(level_1::Literal::String(
+            binding_method.dll_name.to_string(),
+        ))],
     };
 
     let dll_import_args = binding_method
@@ -31,7 +33,7 @@ fn add_free_method(binding_method: &level_2::BindingMethod, methods: &mut Vec<le
         args: dll_import_args,
         body: None,
     };
-    
+
     methods.push(import_method);
 }
 
@@ -40,7 +42,7 @@ fn build_free_method_container(container: &level_2::MethodContainer) -> level_1:
     for binding_method in &container.methods {
         add_free_method(binding_method, &mut methods);
     }
-    
+
     level_1::Object {
         attributes: Vec::new(),
         visibility: level_1::Visibility::Public,
@@ -58,7 +60,7 @@ fn struct_field(f: &level_2::BindingField) -> level_1::ObjectField {
         name: "FieldOffset".into(),
         args: vec![Box::new(level_1::Literal::Integer(f.offset as i32))],
     };
-    
+
     level_1::ObjectField {
         attributes: vec![attr],
         visibility: level_1::Visibility::Public,
@@ -74,19 +76,16 @@ fn build_struct_definition(s: &level_2::BindingStruct) -> level_1::Object {
             Box::new(level_1::Ident::new("LayoutKind.Explicit")),
             Box::new(level_1::Assignment::new(
                 level_1::Ident::new("Size"),
-                level_1::Literal::Integer(s.size as i32)
+                level_1::Literal::Integer(s.size as i32),
             )),
             Box::new(level_1::Assignment::new(
                 level_1::Ident::new("Pack"),
-                level_1::Literal::Integer(s.alignment as i32)
+                level_1::Literal::Integer(s.alignment as i32),
             )),
         ],
     };
-    
-    let fields = s.fields
-        .iter()
-        .map(struct_field)
-        .collect();
+
+    let fields = s.fields.iter().map(struct_field).collect();
 
     level_1::Object {
         attributes: vec![attr],
@@ -115,11 +114,11 @@ impl super::Pass for LowerLevel2ToLevel1 {
         }));
 
         let mut namespace_content = Vec::<Box<dyn level_1::TopLevelElement>>::new();
-        
+
         for s in &input.structs {
             namespace_content.push(Box::new(build_struct_definition(s)))
         }
-        
+
         if let Some(free_methods) = &input.free_methods {
             namespace_content.push(Box::new(build_free_method_container(free_methods)));
         }
